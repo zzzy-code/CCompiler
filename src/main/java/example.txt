@@ -1,0 +1,14 @@
+int main() {
+    int i = 0;
+    int s = 50;
+    while (i <= s) {
+        i = i + 3;
+    }
+    printf("%d", i);
+    if (i % 2 == 0) {
+        printf("Even Number");
+    } else {
+        printf("Odd Number");
+    }
+    return 0;
+}

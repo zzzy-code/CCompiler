@@ -55,6 +55,8 @@ public class SimplePrecedenceParser {
             new GrammarRule("Expr", "Expr", "OP_LE", "Expr"),
             new GrammarRule("Expr", "Expr", "OP_EQ", "Expr"),
             new GrammarRule("Expr", "Expr", "OP_MOD", "Expr"),
+            new GrammarRule("Expr", "Expr", "OP_MUL", "Expr"),
+            new GrammarRule("Expr", "Expr", "OP_GT", "Expr"),
             new GrammarRule("Expr", "LPAREN", "Expr", "RPAREN"),
             new GrammarRule("Expr", "ID"),
             new GrammarRule("Expr", "NUM"),

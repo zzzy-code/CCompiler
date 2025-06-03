@@ -1,5 +1,4 @@
 package AssemblyGenerator;
-
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -9,11 +8,12 @@ public class AssemblyGenerator {
     private List<String> assemblyCode;
     private Map<String, Integer> variableOffsets; // 变量名到 [BP+offset] 的映射
     private int currentOffset; // 当前可用的相对于 BP 的偏移 (负数)
-    private int tempVarCounterForAssembly; // 用于在汇编中唯一命名临时存储（如果需要）
 
-    // 用于从三地址码中解析操作数
+    // 用于追踪哪个临时变量是由哪个比较操作产生的 (符号, 例如 "<=", ">")
+    private Map<String, String> tempVarComparisonOrigin = new HashMap<>();
+
+    // 正则表达式模式
     private static final Pattern ASSIGN_BINARY_OP_PATTERN = Pattern.compile("(\\S+)\\s*=\\s*(\\S+)\\s*([+\\-*/%]|<=|==|<|>|>=|!=)\\s*(\\S+)");
-    private static final Pattern ASSIGN_UNARY_OP_PATTERN = Pattern.compile("(\\S+)\\s*=\\s*([+\\-!NOT])\\s*(\\S+)"); // 假设有 NOT
     private static final Pattern ASSIGN_COPY_PATTERN = Pattern.compile("(\\S+)\\s*=\\s*(\\S+)");
     private static final Pattern IF_FALSE_GOTO_PATTERN = Pattern.compile("IF_FALSE\\s+(\\S+)\\s+GOTO\\s+(L\\d+)");
     private static final Pattern GOTO_PATTERN = Pattern.compile("GOTO\\s+(L\\d+)");
@@ -28,58 +28,49 @@ public class AssemblyGenerator {
     public AssemblyGenerator() {
         this.assemblyCode = new ArrayList<>();
         this.variableOffsets = new HashMap<>();
-        this.currentOffset = -2; // 第一个变量在 [BP-2]
-        this.tempVarCounterForAssembly = 0;
+        this.currentOffset = -2;
     }
 
     private String getVarAssemblyPlace(String varOrTempOrLiteral) {
         if (variableOffsets.containsKey(varOrTempOrLiteral)) {
             return "WORD PTR [BP" + (variableOffsets.get(varOrTempOrLiteral)) + "]";
-        } else if (varOrTempOrLiteral.matches("-?\\d+")) { // 是数字字面量
+        } else if (varOrTempOrLiteral.matches("-?\\d+")) {
             return varOrTempOrLiteral;
-        } else if (varOrTempOrLiteral.startsWith("_t")) { // 是临时变量
-            // 简单策略：临时变量通常在计算后立即使用，或者通过寄存器传递
-            // 这里我们假设临时变量的结果会被加载到 AX 或 BX
-            // 对于复杂的临时变量管理，需要更完善的策略
-            // 在这个简化的生成器中，我们将依赖于操作指令直接使用寄存器
-            // 例如, _t0 = i <= s.  i 和 s 会被加载到寄存器，比较结果影响标志位，
-            // IF_FALSE 会根据标志位跳转。_t0 本身可能不会显式存储。
-            // 如果 _t0 被后续指令使用，那它应该被存到某个地方 (如 AX)。
-            // 这里我们简化，假定产生 _tX 的指令会把结果放到 AX。
-            return "AX"; //  危险的假设：_tX 的值总是在 AX 中
+        } else if (varOrTempOrLiteral.startsWith("_t")) {
+            // 假设 _tX 的值在 AX 中，由前一个操作计算得到
+            // 这对于比较操作后的 _tX 是不正确的，因为比较结果在 flags
+            // 但对于算术操作后的 _tX (如 _t1 = fact * i)，结果在 AX 是合理的
+            return "AX";
         }
-        // System.err.println("汇编警告: 未找到变量/临时变量 '" + varOrTempOrLiteral + "' 的存储位置。");
-        return varOrTempOrLiteral; // 可能是一个未声明的变量或无法处理的临时变量
+        System.err.println("汇编警告: 未找到变量/临时变量 '" + varOrTempOrLiteral + "' 的存储位置，将直接使用其名。");
+        return varOrTempOrLiteral;
     }
 
-    // 加载操作数到寄存器 (AX, BX)
-    // 返回加载到的寄存器名，或直接是字面量
-    private String loadOperandToRegister(String operand, String preferredRegister) {
-        if (operand.matches("-?\\d+")) { // 字面量
-            assemblyCode.add("    MOV " + preferredRegister + ", " + operand);
-            return preferredRegister;
-        } else if (variableOffsets.containsKey(operand)) { // 已声明变量
-            assemblyCode.add("    MOV " + preferredRegister + ", " + getVarAssemblyPlace(operand));
-            return preferredRegister;
-        } else if (operand.startsWith("_t")) { // 临时变量
-            // 假设临时变量的值需要从某个地方（比如另一个寄存器或计算结果）加载
-            // 这是简化的部分，通常临时变量有自己的生命周期和存储管理
-            // 这里假设如果一个临时变量作为操作数，它的值应该在AX (如果它是上一个计算的结果)
-            if (!preferredRegister.equals("AX")) { // 如果期望加载到别的寄存器
-                assemblyCode.add("    MOV " + preferredRegister + ", AX ; 假设 _tX 在 AX");
+    private void loadOperandToRegister(String operand, String register) {
+        if (operand.matches("-?\\d+")) {
+            assemblyCode.add("    MOV " + register + ", " + operand);
+        } else if (variableOffsets.containsKey(operand)) {
+            assemblyCode.add("    MOV " + register + ", " + getVarAssemblyPlace(operand));
+        } else if (operand.startsWith("_t")) {
+            // 如果 _tX 是操作数，它意味着它的值（通常在 AX 中）需要被加载
+            if (!register.equals("AX")) {
+                assemblyCode.add("    MOV " + register + ", AX ; 从 AX (假设存有 " + operand + ") 复制到 " + register);
             }
-            return preferredRegister;
+        } else {
+            System.err.println("汇编错误: 无法加载未知操作数 '" + operand + "' 到寄存器 " + register);
+            assemblyCode.add("    ; 错误: 无法加载操作数 " + operand);
         }
-        System.err.println("汇编错误: 无法加载操作数 '" + operand + "'");
-        return operand; // 错误情况
     }
-
 
     public List<String> generate(List<String> tacInstructions) {
+        assemblyCode.clear();
+        variableOffsets.clear();
+        tempVarComparisonOrigin.clear();
+        currentOffset = -2;
+
         assemblyCode.add(".MODEL SMALL");
         assemblyCode.add(".STACK 100H");
         assemblyCode.add(".DATA");
-        // 数据段中定义所有 PRINT_STR 用到的字符串
         int stringCounter = 0;
         Map<String, String> stringLabelMap = new HashMap<>();
         for (String tac : tacInstructions) {
@@ -94,8 +85,7 @@ public class AssemblyGenerator {
             }
         }
         assemblyCode.add("newline_char DB 0DH, 0AH, '$'");
-        assemblyCode.add("num_buffer DB 6 DUP('$')");
-
+        assemblyCode.add("num_buffer DB 7 DUP('$') ; 缓冲区用于数字转换");
 
         assemblyCode.add(".CODE");
         assemblyCode.add("MAIN PROC");
@@ -107,12 +97,10 @@ public class AssemblyGenerator {
         assemblyCode.add("");
 
         for (String tac : tacInstructions) {
-            assemblyCode.add("    ; TAC: " + tac); // 将TAC作为注释
-
+            assemblyCode.add("    ; TAC: " + tac);
             Matcher m;
 
             if (tac.equals("START_PROGRAM") || tac.equals("END_PROGRAM")) {
-                // START_PROGRAM 已由头部处理, END_PROGRAM 将由 RETURN 处理
                 continue;
             }
 
@@ -120,107 +108,89 @@ public class AssemblyGenerator {
             if (m.matches()) {
                 String varName = m.group(1);
                 if (!variableOffsets.containsKey(varName)) {
-                    assemblyCode.add("    SUB SP, 2       ; 为 " + varName + " 在栈上分配空间");
+                    assemblyCode.add("    SUB SP, 2       ; 为 " + varName + " 在栈上分配空间 [BP" + currentOffset + "]");
                     variableOffsets.put(varName, currentOffset);
                     currentOffset -= 2;
                 }
                 continue;
             }
 
-            m = ASSIGN_BINARY_OP_PATTERN.matcher(tac); // _tX = op1 SYMBOL op2
+            m = ASSIGN_BINARY_OP_PATTERN.matcher(tac);
             if (m.matches()) {
-                String dest = m.group(1); // 通常是 _tX 或变量
+                String dest = m.group(1);
                 String op1 = m.group(2);
                 String symbol = m.group(3);
                 String op2 = m.group(4);
 
-                loadOperandToRegister(op1, "AX"); // AX = op1
-                loadOperandToRegister(op2, "BX"); // BX = op2
+                loadOperandToRegister(op1, "AX");
+                loadOperandToRegister(op2, "BX");
 
                 switch (symbol) {
                     case "+":
                         assemblyCode.add("    ADD AX, BX");
                         break;
-                    case "-":
-                        assemblyCode.add("    SUB AX, BX");
-                        break;
-                    case "<=": // AX <= BX  ( translates to NOT (AX > BX) -> JLE or JNG)
-                        assemblyCode.add("    CMP AX, BX");
-                        // 结果通常用于 IF_FALSE, 所以这里只比较，IF_FALSE 会用 JG
-                        // 如果要将布尔结果存入 dest (_tX)，则需要:
-                        // MOV AX, 1 (true)
-                        // JLE $+5 (skip next MOV)
-                        // MOV AX, 0 (false)
-                        // 这里假设 _tX (dest) 的值直接由后续的 IF_FALSE 使用比较标志
-                        break;
-                    case "==":
-                        assemblyCode.add("    CMP AX, BX");
-                        // 结果用于 IF_FALSE, IF_FALSE 会用 JNE
+                    case "*":
+                        assemblyCode.add("    IMUL BX         ; AX = AX * BX");
                         break;
                     case "%":
-                        assemblyCode.add("    MOV DX, 0       ; 清除DX для DIV");
-                        assemblyCode.add("    DIV BX          ; AX = AX / BX, DX = AX % BX");
-                        assemblyCode.add("    MOV AX, DX      ; 结果取余数到 AX (因为 dest = _tX)");
+                        assemblyCode.add("    CWD             ; 符号扩展 AX 到 DX:AX (为 IDIV)");
+                        assemblyCode.add("    IDIV BX         ; AX = 商, DX = 余数");
+                        assemblyCode.add("    MOV AX, DX      ; 余数到 AX");
+                        break;
+                    case "<=":
+                    case "==":
+                    case ">":
+                    case "<":
+                    case ">=":
+                    case "!=":
+                        assemblyCode.add("    CMP AX, BX");
+                        tempVarComparisonOrigin.put(dest, symbol); // 记录 _tX 由哪个比较产生
                         break;
                     default:
-                        assemblyCode.add("    ; 未知二元操作符: " + symbol);
+                        assemblyCode.add("    ; 未知或未处理的二元操作符: " + symbol);
                 }
-                // 如果 dest 是一个真实变量而非临时变量由IF_FALSE直接使用其状态
-                if (variableOffsets.containsKey(dest)) {
+
+                if (variableOffsets.containsKey(dest) && !symbol.matches("<=|==|>|<|>=|!=")) {
                     assemblyCode.add("    MOV " + getVarAssemblyPlace(dest) + ", AX");
                 }
-                // 如果 dest 是 _tX, 它的值现在在 AX 中，供下一条指令 (如 IF_FALSE) 使用
                 continue;
             }
 
-            m = ASSIGN_COPY_PATTERN.matcher(tac); // var = val  or _tX = val
+            m = ASSIGN_COPY_PATTERN.matcher(tac);
             if (m.matches()) {
                 String dest = m.group(1);
                 String source = m.group(2);
-
-                loadOperandToRegister(source, "AX"); // AX = source
+                loadOperandToRegister(source, "AX");
                 assemblyCode.add("    MOV " + getVarAssemblyPlace(dest) + ", AX");
                 continue;
             }
 
-            m = IF_FALSE_GOTO_PATTERN.matcher(tac); // IF_FALSE cond GOTO Label
+            m = IF_FALSE_GOTO_PATTERN.matcher(tac);
             if (m.matches()) {
-                String condVar = m.group(1); // 通常是 _tX, 其结果来自上一个 CMP
+                String condVar = m.group(1);
                 String label = m.group(2);
-                // IF_FALSE cond GOTO Label
-                // 假设 condVar 的值 (0 for false, non-zero for true) 是由 CMP 设置的标志位
-                // 例如，如果 TAC 是:
-                //   _t0 = op1 <= op2  (汇编: CMP op1, op2)
-                //   IF_FALSE _t0 GOTO L1 (汇编: JG L1, 因为 !(op1 <= op2) means op1 > op2)
-                //
-                //   _t0 = op1 == op2  (汇编: CMP op1, op2)
-                //   IF_FALSE _t0 GOTO L1 (汇编: JNE L1, 因为 !(op1 == op2) means op1 != op2)
-                //
-                // 这个需要知道 _t0 是由哪个比较产生的。
-                // 由于我们无法简单地回溯，我们需要对TAC指令和汇编跳转进行更紧密的映射。
-                // 假设：上一条指令是 CMP AX, BX
-                // 如果 _t0 来自 op1 <= op2 (CMP AX, BX): IF_FALSE _t0 GOTO L -> JG L
-                // 如果 _t0 来自 op1 == op2 (CMP AX, BX): IF_FALSE _t0 GOTO L -> JNE L
-                //
-                // 这里我们做一个通用假设： CMP AX, BX 后，如果 AX 是条件变量 _tX (通常为0或1)
-                // CMP AX, 0 (假设 _tX 存的是布尔值 0 或 1)
-                // JE label (if _tX is 0, i.e. false, then jump)
-                // 这里我们假设条件判断的结果（CMP指令）已经发生，直接根据比较类型跳转
-                // 从 TAC 模式看，condVar (_t0, _t3) 是比较的结果。
-                // _t0 = i <= s (CMP i,s) -> IF_FALSE _t0 GOTO L1 (i > s GOTO L1) -> JG L1
-                // _t3 = _t2 == 0 (CMP _t2,0) -> IF_FALSE _t3 GOTO L2 (_t2 != 0 GOTO L2) -> JNE L2
-                // 所以，这里的跳转类型取决于生成 condVar 的比较操作。
-                // 我们需要查找前一条指令来确定比较类型，这很复杂。
-                // 简化：如果condVar是_t0 (来自 i<=s), 跳转 JG
-                // 如果condVar是_t3 (来自 _t2==0), 跳转 JNE
-                if (condVar.equals("_t0")) { //来自于 i <= s
-                    assemblyCode.add("    JG " + label + "         ; IF_FALSE (i <= s) => IF (i > s)");
-                } else if (condVar.equals("_t3")) { //来自于 _t2 == 0
-                    assemblyCode.add("    JNE " + label + "        ; IF_FALSE (_t2 == 0) => IF (_t2 != 0)");
+                String originalComparison = tempVarComparisonOrigin.get(condVar);
+
+                if (originalComparison != null) {
+                    switch (originalComparison) {
+                        case "<=": assemblyCode.add("    JG " + label + "  ; !(A <= B) => (A > B)"); break;
+                        case "==": assemblyCode.add("    JNE " + label + " ; !(A == B) => (A != B)"); break;
+                        case ">":  assemblyCode.add("    JLE " + label + " ; !(A > B)  => (A <= B)"); break;
+                        case "<":  assemblyCode.add("    JGE " + label + " ; !(A < B)  => (A >= B)"); break;
+                        case ">=": assemblyCode.add("    JL " + label + "  ; !(A >= B) => (A < B)"); break;
+                        case "!=": assemblyCode.add("    JE " + label + "  ; !(A != B) => (A == B)"); break;
+                        default:
+                            assemblyCode.add("    ; IF_FALSE " + condVar + " (源比较 '" + originalComparison + "' 未处理) GOTO " + label);
+                            loadOperandToRegister(condVar, "AX"); // 后备
+                            assemblyCode.add("    CMP AX, 0");
+                            assemblyCode.add("    JE " + label);
+                            break;
+                    }
                 } else {
-                    assemblyCode.add("    ; IF_FALSE " + condVar + " GOTO " + label + " (未知条件跳转类型)");
-                    assemblyCode.add("    CMP AX, 0 ; 假设 " + condVar + " 在 AX 且 0 为 false");
-                    assemblyCode.add("    JE " + label + " ; 跳转如果为 false");
+                    assemblyCode.add("    ; IF_FALSE " + condVar + " (无源比较信息) GOTO " + label);
+                    loadOperandToRegister(condVar, "AX"); // 后备
+                    assemblyCode.add("    CMP AX, 0          ; 假设 0 为 false");
+                    assemblyCode.add("    JE " + label + "       ; 如果 AX == 0 (false) 则跳转");
                 }
                 continue;
             }
@@ -242,7 +212,7 @@ public class AssemblyGenerator {
                 String varToPrint = m.group(1);
                 loadOperandToRegister(varToPrint, "AX");
                 assemblyCode.add("    CALL PRINT_NUM");
-                assemblyCode.add("    CALL PRINT_NEWLINE  ; <<< 新增：每句输出后自动换行");
+                assemblyCode.add("    CALL PRINT_NEWLINE  ; <<< 所有输出后自动换行");
                 continue;
             }
 
@@ -254,15 +224,21 @@ public class AssemblyGenerator {
                     assemblyCode.add("    LEA DX, " + msgLabel);
                     assemblyCode.add("    MOV AH, 09H");
                     assemblyCode.add("    INT 21H");
-                    assemblyCode.add("    CALL PRINT_NEWLINE  ; <<< 新增：每句输出后自动换行");
+                    assemblyCode.add("    CALL PRINT_NEWLINE  ; <<< 所有输出后自动换行");
                 } else {
                     assemblyCode.add("    ; 错误: 找不到字符串 '" + strContent + "' 对应的消息标签");
                 }
                 continue;
             }
-
             m = PRINT_NEWLINE_PATTERN.matcher(tac);
             if (m.matches()) {
+                // 如果 TAC 本身有 PRINT_NEWLINE，而我们又在 PRINT_VAR/PRINT_STR 后自动加了换行，
+                // 这里可能会导致双重换行。
+                // 为了严格执行“每句输出都自动换行”，并且源 TAC 中的 PRINT_NEWLINE 也被尊重，
+                // 这里的 CALL PRINT_NEWLINE 是必要的。
+                // 如果不想要双重换行，那么要么 TAC 生成器（PrintfNode）不应在字符串带\n时生成 PRINT_NEWLINE，
+                // 要么这里的  在 PRINT_VAR/STR 后不加 PRINT_NEWLINE，只依赖 TAC 中的。
+                // 当前策略是：AssemblyGenerator 强制为 PRINT_VAR/STR 加换行，也执行 TAC 中的 PRINT_NEWLINE。
                 assemblyCode.add("    CALL PRINT_NEWLINE");
                 continue;
             }
@@ -270,14 +246,15 @@ public class AssemblyGenerator {
             m = RETURN_PATTERN.matcher(tac);
             if (m.matches()) {
                 String retVal = m.group(1);
-                if (retVal.matches("-?\\d+")) {
-                    assemblyCode.add("    MOV AL, " + retVal);
+                if (retVal.equals("0")) {
+                    assemblyCode.add("    MOV AL, 0           ; 直接将返回码 0 放入 AL");
+                } else if (retVal.matches("-?\\d+")) {
+                    assemblyCode.add("    MOV AL, " + retVal + "      ; 设置返回码");
                 } else {
-                    loadOperandToRegister(retVal, "AX"); // AX = retVal
-                    assemblyCode.add("    MOV AL, AH ; 假设返回值较小，只用AL，或需要确保AX低字节正确");
+                    loadOperandToRegister(retVal, "AX");
+                    assemblyCode.add("    MOV AL, AL          ; AL 是 AX 的低字节, 作为返回码");
                 }
-                // DOS exit
-                assemblyCode.add("    MOV AH, 4CH");
+                assemblyCode.add("    MOV AH, 4CH         ; DOS 终止程序功能号");
                 assemblyCode.add("    INT 21H");
                 continue;
             }
@@ -286,7 +263,7 @@ public class AssemblyGenerator {
 
         assemblyCode.add("");
         assemblyCode.add("    POP BP");
-        assemblyCode.add("    RET              ; MAIN ENDP 通常已经由 4CH 终止");
+        assemblyCode.add("    RET");
         assemblyCode.add("MAIN ENDP");
         assemblyCode.add("");
         addPrintNumProcedure();

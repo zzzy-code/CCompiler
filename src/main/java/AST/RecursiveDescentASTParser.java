@@ -187,7 +187,7 @@ public class RecursiveDescentASTParser {
     // Expr -> AdditiveExpr ( (OP_LE | OP_EQ) AdditiveExpr )*
     private ExpressionNode parseExpression() {
         ExpressionNode left = parseAdditiveExpression();
-        while (currentToken.type.equals("OP_LE") || currentToken.type.equals("OP_EQ")) {
+        while (currentToken.type.equals("OP_LE") || currentToken.type.equals("OP_EQ") || currentToken.type.equals("OP_GT")) {
             Token opToken = currentToken;
             consume(opToken.type);
             ExpressionNode right = parseAdditiveExpression();
@@ -199,7 +199,7 @@ public class RecursiveDescentASTParser {
     // AdditiveExpr -> MultiplicativeExpr ( OP_ADD MultiplicativeExpr )*
     private ExpressionNode parseAdditiveExpression() {
         ExpressionNode left = parseMultiplicativeExpression();
-        while (currentToken.type.equals("OP_ADD")) {
+        while (currentToken.type.equals("OP_ADD") || currentToken.type.equals("OP_MUL")) {
             Token opToken = currentToken;
             consume(opToken.type);
             ExpressionNode right = parseMultiplicativeExpression();

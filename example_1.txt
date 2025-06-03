@@ -1,0 +1,15 @@
+int main() {
+    int fact = 1;
+    int i = 1;
+    while (i <= 5) {
+        fact = fact * i;
+        i = i + 1;
+    }
+    printf("%d", fact);
+    if (fact > 100) {
+        printf("Large Value");
+    } else {
+        printf("Small Value");
+    }
+    return 0;
+}

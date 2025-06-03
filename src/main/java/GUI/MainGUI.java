@@ -8,13 +8,14 @@ import Lexer.Lexer;
 import Lexer.Token;
 import Parser.SimplePrecedenceParser;
 import javax.swing.*;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.io.File;
-import java.io.FileOutputStream; // 用于指定编码保存
-import java.io.OutputStreamWriter; // 用于指定编码保存
-import java.io.Writer;           // 用于指定编码保存
-import java.nio.charset.Charset;   // 用于指定编码保存
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
+import java.nio.charset.Charset;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -29,7 +30,7 @@ public class MainGUI extends JFrame {
     private JButton astParseButton;
     private JButton tacButton;
     private JButton asmButton;
-    private JButton loadExampleButton;
+    private JButton loadFileButton; // 修改变量名
 
     private List<Token> currentTokens = null;
     private ProgramNode currentAstRoot = null;
@@ -41,7 +42,9 @@ public class MainGUI extends JFrame {
         setSize(900, 750);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         initComponents();
-        loadExampleFile();
+        // loadExampleFile(); // 启动时不再自动加载特定文件
+        outputArea.setText("请点击“选择并加载源文件”按钮来加载您的 C 源代码文件，或直接在上方文本框中输入。");
+        resetCompilationState(true); // 启动时启用词法分析按钮
     }
 
     private void initComponents() {
@@ -56,10 +59,10 @@ public class MainGUI extends JFrame {
         inputScroll.setPreferredSize(new Dimension(0, 200));
         inputPanel.add(inputScroll, BorderLayout.CENTER);
 
-        loadExampleButton = new JButton("加载 example.txt");
-        loadExampleButton.addActionListener(e -> loadExampleFile());
+        loadFileButton = new JButton("选择并加载源文件"); // 修改按钮文本
+        loadFileButton.addActionListener(e -> chooseAndLoadFile()); // 修改调用的方法
         JPanel inputButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        inputButtonPanel.add(loadExampleButton);
+        inputButtonPanel.add(loadFileButton);
         inputPanel.add(inputButtonPanel, BorderLayout.SOUTH);
 
         JPanel outputPanel = new JPanel(new BorderLayout());
@@ -95,7 +98,7 @@ public class MainGUI extends JFrame {
         buttonPanel.add(asmButton);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, inputPanel, outputPanel);
-        splitPane.setResizeWeight(0.4);
+        splitPane.setResizeWeight(0.25);
         mainPanel.add(splitPane, BorderLayout.CENTER);
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
@@ -107,29 +110,34 @@ public class MainGUI extends JFrame {
         return content.replaceAll("\\\\s*", "").trim();
     }
 
-    private void loadExampleFile() {
-        File exampleFile = new File("example.txt");
-        if (!exampleFile.exists()) {
-            exampleFile = new File("src/main/java/example.txt");
-        }
+    // 修改 loadExampleFile 为 chooseAndLoadFile
+    private void chooseAndLoadFile() {
+        JFileChooser fileChooser = new JFileChooser();
+        // 设置默认打开目录为当前项目目录或用户上次打开的目录
+        fileChooser.setCurrentDirectory(new File(".")); // "." 代表当前目录
+        // 设置文件过滤器，例如只显示 .txt 或 .c 文件
+        FileNameExtensionFilter filter = new FileNameExtensionFilter(
+                "C Source & Text Files (*.c, *.txt)", "c", "txt");
+        fileChooser.setFileFilter(filter);
+        fileChooser.setDialogTitle("选择要加载的源代码文件");
 
-        if (exampleFile.exists()) {
+        int result = fileChooser.showOpenDialog(this);
+        if (result == JFileChooser.APPROVE_OPTION) {
+            File selectedFile = fileChooser.getSelectedFile();
             try {
-                String sourceCode = readFileToString(exampleFile.getAbsolutePath());
+                String sourceCode = readFileToString(selectedFile.getAbsolutePath());
                 inputArea.setText(sourceCode);
-                outputArea.setText("example.txt 已加载。\n路径: " + exampleFile.getAbsolutePath() + "\n");
-                resetCompilationState(true);
+                outputArea.setText("文件已加载: " + selectedFile.getName() + "\n路径: " + selectedFile.getAbsolutePath() + "\n");
+                resetCompilationState(true); // 加载文件后，启用词法分析按钮并重置状态
             } catch (IOException ex) {
-                outputArea.setText("加载 example.txt 失败: " + ex.getMessage());
-                JOptionPane.showMessageDialog(this, "加载 example.txt 失败: " + ex.getMessage(),
+                outputArea.setText("加载文件 " + selectedFile.getName() + " 失败: " + ex.getMessage());
+                JOptionPane.showMessageDialog(this, "加载文件失败: " + ex.getMessage(),
                         "文件错误", JOptionPane.ERROR_MESSAGE);
-                resetCompilationState(true);
+                resetCompilationState(true); // 即使加载失败，也允许用户再次尝试或手动输入
             }
         } else {
-            outputArea.setText("未找到 example.txt。\n请确保文件存在于以下任一路径：\n" +
-                    new File("example.txt").getAbsolutePath() + "\n或\n" +
-                    new File("src/main/java/example.txt").getAbsolutePath() + "\n或手动粘贴代码。");
-            resetCompilationState(true);
+            // 用户取消了选择，可以不执行任何操作，或者给个提示
+            // outputArea.append("\n未选择文件。\n");
         }
     }
 
@@ -146,10 +154,11 @@ public class MainGUI extends JFrame {
         asmButton.setEnabled(false);
     }
 
+
     private void performLexicalAnalysis(ActionEvent e) {
         String source = inputArea.getText();
         if (source.trim().isEmpty()) {
-            JOptionPane.showMessageDialog(this, "请输入源代码！", "错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "请输入或加载源代码！", "错误", JOptionPane.ERROR_MESSAGE);
             return;
         }
         try {
@@ -168,10 +177,10 @@ public class MainGUI extends JFrame {
             currentTac = null;
             simpleParserInstance = null;
 
-            JOptionPane.showMessageDialog(this, "词法分析完成！", "成功", JOptionPane.INFORMATION_MESSAGE); // 添加成功对话框
+            JOptionPane.showMessageDialog(this, "词法分析完成！", "成功", JOptionPane.INFORMATION_MESSAGE);
 
         } catch (Exception ex) {
-            outputArea.setText("词法分析错误: " + ex.getMessage());
+            outputArea.setText("词法分析错误: " + ex.getMessage() + "\n" + getStackTraceString(ex));
             JOptionPane.showMessageDialog(this, "词法分析错误: " + ex.getMessage(), "词法错误", JOptionPane.ERROR_MESSAGE);
             resetCompilationState(true);
         }
@@ -185,17 +194,20 @@ public class MainGUI extends JFrame {
         try {
             simpleParserInstance = new SimplePrecedenceParser();
             String tokenString = convertTokensToString(currentTokens);
+            // 假设 SimplePrecedenceParser 的 parse 方法内部会打印步骤到控制台
+            // 并且我们通过 getParseSteps 获取步骤来显示在 JTextArea
+            // SimplePrecedenceParser 的构造函数或 parse 方法不应直接修改 GUI
             boolean success = simpleParserInstance.parse(tokenString);
 
             StringBuilder sb = new StringBuilder("=== 简单优先语法分析过程 ===\n");
-            // 假设 SimplePrecedenceParser 有一个 getParseSteps() 方法
-            List<String> parseSteps = simpleParserInstance.getParseSteps(); // 需要您在SimplePrecedenceParser中实现此方法
-            if (parseSteps != null) {
+            List<String> parseSteps = simpleParserInstance.getParseSteps(); // 需要您在 SimplePrecedenceParser 中实现此方法
+            if (parseSteps != null && !parseSteps.isEmpty()) {
                 for (String step : parseSteps) {
                     sb.append(step).append("\n");
                 }
             } else {
-                sb.append("（未能获取详细分析步骤，请确保 SimplePrecedenceParser.getParseSteps() 可用且返回了步骤）\n");
+                // 如果 parse 方法直接打印到控制台，这里可能没有步骤可获取
+                sb.append("（详细分析步骤请查看控制台，或确保 SimplePrecedenceParser.getParseSteps() 可用且返回了步骤）\n");
             }
             sb.append("\n语法分析最终状态: ").append(success ? "成功" : "失败").append("\n");
             outputArea.setText(sb.toString());
@@ -234,14 +246,13 @@ public class MainGUI extends JFrame {
             currentAstRoot = astParser.parseProgram();
 
             if (currentAstRoot != null) {
-                // 假设 ASTNode 的 printTree 方法已修改为返回 String
-                String astStringRepresentation = currentAstRoot.printTree("", true);
+                String astStringRepresentation = currentAstRoot.printTree("", true); // 假设 printTree 返回 String
                 outputArea.setText("=== AST 结构展示 ===\n" + astStringRepresentation);
 
                 tacButton.setEnabled(true);
                 asmButton.setEnabled(false);
                 currentTac = null;
-                JOptionPane.showMessageDialog(this, "AST 构建完成！", "成功", JOptionPane.INFORMATION_MESSAGE); // 添加成功对话框
+                JOptionPane.showMessageDialog(this, "AST 构建完成！", "成功", JOptionPane.INFORMATION_MESSAGE);
             } else {
                 outputArea.setText("AST 构建失败。解析器返回了 null。");
                 tacButton.setEnabled(false);
@@ -270,7 +281,7 @@ public class MainGUI extends JFrame {
             }
             outputArea.setText(sb.toString());
             asmButton.setEnabled(true);
-            JOptionPane.showMessageDialog(this, "三地址码生成完成！", "成功", JOptionPane.INFORMATION_MESSAGE); // 添加成功对话框
+            JOptionPane.showMessageDialog(this, "三地址码生成完成！", "成功", JOptionPane.INFORMATION_MESSAGE);
 
         } catch (Exception ex) {
             outputArea.setText("三地址码生成错误: " + ex.getMessage() + "\n" + getStackTraceString(ex));
@@ -293,7 +304,7 @@ public class MainGUI extends JFrame {
                 sb.append(asmLine).append("\n");
             }
             outputArea.setText(sb.toString());
-            JOptionPane.showMessageDialog(this, "汇编代码生成完成！", "成功", JOptionPane.INFORMATION_MESSAGE); // 通用成功信息
+            JOptionPane.showMessageDialog(this, "汇编代码生成完成！", "成功", JOptionPane.INFORMATION_MESSAGE);
 
             JFileChooser fileChooser = new JFileChooser(".");
             fileChooser.setDialogTitle("保存汇编代码");
@@ -301,13 +312,13 @@ public class MainGUI extends JFrame {
             int userSelection = fileChooser.showSaveDialog(this);
             if (userSelection == JFileChooser.APPROVE_OPTION) {
                 File fileToSave = fileChooser.getSelectedFile();
-                try (Writer writer = new OutputStreamWriter(new FileOutputStream(fileToSave), Charset.forName("GBK"))) { // ANSI
+                try (Writer writer = new OutputStreamWriter(new FileOutputStream(fileToSave), Charset.forName("GBK"))) {
                     for (String asmLine : assemblyCode) {
                         writer.write(asmLine + System.lineSeparator());
                     }
                     JOptionPane.showMessageDialog(this,
                             "汇编代码已以 ANSI (GBK) 编码保存到: " + fileToSave.getAbsolutePath(),
-                            "保存成功", JOptionPane.INFORMATION_MESSAGE); // 明确保存成功信息
+                            "保存成功", JOptionPane.INFORMATION_MESSAGE);
                 } catch (IOException exIO) {
                     outputArea.append("\n保存汇编文件失败: " + exIO.getMessage());
                     JOptionPane.showMessageDialog(this, "保存汇编文件失败: " + exIO.getMessage(), "文件错误", JOptionPane.ERROR_MESSAGE);

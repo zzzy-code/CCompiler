@@ -1,19 +1,25 @@
 package AST;
 
-import Lexer.Token; // 使用您提供的 Token 类
+import Lexer.Token;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Arrays;
 
-// 假设 AST 节点类 (ProgramNode, BlockNode 等) 和 TACContext 已定义并可访问
-// 这些通常会通过 import 语句导入，或者如果它们在同一个文件中则直接可见。
-// (为了这个示例，假设它们是可访问的顶层类或在同一个包中)
-
+/**
+ * RecursiveDescentASTParser 类实现了一个递归下降的语法分析器。
+ * 它将词法分析器生成的 Token 列表转换为抽象语法树 (AST)。
+ * 该解析器根据特定的文法规则为每种语法结构定义一个解析方法。
+ */
 public class RecursiveDescentASTParser {
     private List<Token> tokens;
     private int currentTokenIndex;
     private Token currentToken;
 
+    /**
+     * RecursiveDescentASTParser 的构造函数。
+     *
+     * @param tokens 从词法分析器获得的 Token 列表。
+     * @throws IllegalArgumentException 如果 Token 列表为 null 或为空。
+     */
     public RecursiveDescentASTParser(List<Token> tokens) {
         if (tokens == null || tokens.isEmpty()) {
             throw new IllegalArgumentException("Token list cannot be null or empty for parser.");
@@ -23,14 +29,20 @@ public class RecursiveDescentASTParser {
         this.currentToken = tokens.get(0);
     }
 
+    /**
+     * 消耗 (consume) 当前 Token，并前进到下一个 Token。
+     * 如果当前 Token 的类型与期望的类型不匹配，则抛出运行时异常。
+     *
+     * @param expectedType 期望的当前 Token 的类型字符串。
+     * @throws RuntimeException 如果 Token 类型不匹配。
+     */
     private void consume(String expectedType) {
         if (currentToken.type.equals(expectedType)) {
             currentTokenIndex++;
             if (currentTokenIndex < tokens.size()) {
                 currentToken = tokens.get(currentTokenIndex);
             } else {
-                // 已经到达列表末尾，通常在列表末尾有一个特殊的 EOF token
-                currentToken = new Token("EOF_INTERNAL", "$"); // 使用内部 EOF 标记
+                currentToken = new Token("EOF_INTERNAL", "$");
             }
         } else {
             throw new RuntimeException("Parser Error: Expected token type " + expectedType +
@@ -39,6 +51,12 @@ public class RecursiveDescentASTParser {
         }
     }
 
+    /**
+     * 解析整个程序。
+     * 文法规则 (示例): Program -> KW_INT KW_MAIN LPAREN RPAREN Block
+     *
+     * @return 构建的 ProgramNode AST 根节点。
+     */
     public ProgramNode parseProgram() {
         //文法: Program -> KW_INT KW_MAIN LPAREN RPAREN Block
         consume("KW_INT");
@@ -46,18 +64,23 @@ public class RecursiveDescentASTParser {
         consume("LPAREN");
         consume("RPAREN");
         BlockNode block = parseBlock();
-        // 检查是否所有 Token 都已消耗 (除了我们可能手动添加的 EOF)
         if (!currentToken.type.equals("EOF") && !currentToken.type.equals("EOF_INTERNAL") && !currentToken.type.equals("$")) {
             System.err.println("Warning: Parser finished, but unconsumed tokens remain, starting with: " + currentToken);
         }
         return new ProgramNode(block);
     }
 
+    /**
+     * 解析一个代码块。
+     * 文法规则 (示例): Block -> LBRACE StmtList RBRACE | LBRACE RBRACE
+     * StmtList (语句列表) 在此通过循环处理，直到遇到右花括号。
+     *
+     * @return 构建的 BlockNode AST 节点。
+     */
     private BlockNode parseBlock() {
         //文法: Block -> LBRACE StmtList RBRACE | LBRACE RBRACE
         consume("LBRACE");
         List<StatementNode> statements = new ArrayList<>();
-        // StmtList 的处理: 只要不是 RBRACE，就尝试解析 Stmt
         while (!currentToken.type.equals("RBRACE") && !currentToken.type.equals("EOF") && !currentToken.type.equals("EOF_INTERNAL")) {
             statements.add(parseStatement());
         }
@@ -65,16 +88,21 @@ public class RecursiveDescentASTParser {
         return new BlockNode(statements);
     }
 
+    /**
+     * 解析单个语句。
+     * 根据当前 Token 的类型来决定调用哪个具体的语句解析方法。
+     * 文法规则 (示例): Stmt -> DeclStmt | AssignStmt | WhileStmt | IfStmt | PrintStmt | ReturnStmt
+     * (注意: ElseIfStmt 通常不是一个独立的顶层语句，而是 IfStmt 的一部分)
+     *
+     * @return 构建的 StatementNode AST 子类节点。
+     * @throws RuntimeException 如果遇到无法开始一个语句的未知 Token。
+     */
     private StatementNode parseStatement() {
         //文法: Stmt -> DeclStmt | AssignStmt | WhileStmt | IfStmt | ElseIfStmt | PrintStmt | ReturnStmt
-        // ElseIfStmt 通常不应作为一个独立的 Statement，而是 IfStmt 的一部分。
-        // 我们将基于 token 类型来决定。
         switch (currentToken.type) {
             case "KW_INT":
                 return parseDeclarationStatement();
             case "ID":
-                // 需要向前看一个 token 来区分是赋值语句还是函数调用（如果支持的话）
-                // 对于 example.txt, ID 开头的语句是赋值语句
                 return parseAssignmentStatement();
             case "KW_WHILE":
                 return parseWhileStatement();
@@ -89,51 +117,75 @@ public class RecursiveDescentASTParser {
         }
     }
 
+    /**
+     * 解析声明语句。
+     * 文法规则 (示例): DeclStmt -> KW_INT ID (OP_ASSIGN Expr)? SEMICOLON
+     * (原注释中 "Expr" 指代 ID，这里更正为 ID)
+     *
+     * @return 构建的 DeclarationNode AST 节点。
+     */
     private DeclarationNode parseDeclarationStatement() {
         //文法: DeclStmt -> KW_INT Expr OP_ASSIGN Expr SEMICOLON | KW_INT Expr SEMICOLON
-        //这里的 Expr 实际上是 ID
         consume("KW_INT");
         Token idToken = currentToken;
-        consume("ID"); // Expr 对应 ID
+        consume("ID");
         IdentifierNode varNameNode = new IdentifierNode(idToken.value);
-
         ExpressionNode initializer = null;
         if (currentToken.type.equals("OP_ASSIGN")) {
             consume("OP_ASSIGN");
-            initializer = parseExpression(); // 右侧的 Expr
+            initializer = parseExpression();
         }
         consume("SEMICOLON");
         return new DeclarationNode(varNameNode.name, initializer);
     }
 
+    /**
+     * 解析赋值语句。
+     * 文法规则 (示例): AssignStmt -> ID OP_ASSIGN Expr SEMICOLON
+     * (原注释中 LHS Expr 指代 ID)
+     *
+     * @return 构建的 AssignmentNode AST 节点。
+     */
     private AssignmentNode parseAssignmentStatement() {
         //文法: AssignStmt -> Expr OP_ASSIGN Expr SEMICOLON
-        //这里的 LHS Expr 实际上是 ID
         Token idToken = currentToken;
-        consume("ID"); // LHS Expr 对应 ID
+        consume("ID");
         IdentifierNode varNode = new IdentifierNode(idToken.value);
 
         consume("OP_ASSIGN");
-        ExpressionNode expr = parseExpression(); // RHS Expr
+        ExpressionNode expr = parseExpression();
         consume("SEMICOLON");
         return new AssignmentNode(varNode, expr);
     }
 
+    /**
+     * 解析 while 循环语句。
+     * 文法规则 (示例): WhileStmt -> KW_WHILE LPAREN Expr RPAREN Block
+     * (假设条件表达式被括号包围)
+     *
+     * @return 构建的 WhileNode AST 节点。
+     */
     private WhileNode parseWhileStatement() {
         //文法: WhileStmt -> KW_WHILE Expr Block
-        //您的文法中 Expr 代表条件，它应该被括号包围
         consume("KW_WHILE");
-        consume("LPAREN"); // 假设您的词法分析器能正确识别 example.txt 中的括号
+        consume("LPAREN");
         ExpressionNode condition = parseExpression();
         consume("RPAREN");
         BlockNode body = parseBlock();
         return new WhileNode(condition, body);
     }
 
+    /**
+     * 解析 if 条件语句。
+     * 文法规则 (示例): IfStmt -> KW_IF LPAREN Expr RPAREN Block (KW_ELSE Block)?
+     * (假设条件表达式被括号包围)
+     *
+     * @return 构建的 IfNode AST 节点。
+     */
     private IfNode parseIfStatement() {
         //文法: IfStmt -> KW_IF Expr Block KW_ELSE Block | KW_IF Expr Block
         consume("KW_IF");
-        consume("LPAREN"); // 假设
+        consume("LPAREN");
         ExpressionNode condition = parseExpression();
         consume("RPAREN");
         BlockNode trueBlock = parseBlock();
@@ -145,18 +197,27 @@ public class RecursiveDescentASTParser {
         return new IfNode(condition, trueBlock, falseBlock);
     }
 
+    /**
+     * 解析 printf 输出语句。
+     * 支持几种模式：
+     * 1. printf(StringLiteral, Expression)
+     * 2. printf(StringLiteral)
+     * 3. printf StringLiteral (简化模式，不带括号，如果文法支持)
+     *
+     * @return 构建的 PrintfNode AST 节点。
+     * @throws RuntimeException 如果格式字符串不是预期的字符串字面量。
+     */
     private PrintfNode parsePrintfStatement() {
         //文法: PrintStmt -> IO_PRINTF LPAREN Expr RPAREN SEMICOLON (Expr is STR)
         //      PrintStmt -> IO_PRINTF LPAREN Expr COMMA Expr RPAREN SEMICOLON (Expr1 is STR, Expr2 is arg)
         //      PrintStmt -> IO_PRINTF Expr SEMICOLON (Expr is STR)
-        //这里的 Expr 可以是 STR 类型
         consume("IO_PRINTF");
         ExpressionNode formatStringExpr;
         ExpressionNode argument = null;
 
         if (currentToken.type.equals("LPAREN")) {
             consume("LPAREN");
-            formatStringExpr = parsePrimaryExpression(); // 期望是 STR (StringLiteralNode)
+            formatStringExpr = parsePrimaryExpression();
             if (!(formatStringExpr instanceof StringLiteralNode)) {
                 throw new RuntimeException("Parser Error: Expected string literal for printf format, but found " + formatStringExpr.getClass().getSimpleName());
             }
@@ -165,8 +226,8 @@ public class RecursiveDescentASTParser {
                 argument = parseExpression();
             }
             consume("RPAREN");
-        } else { // 简化模式 IO_PRINTF STR SEMICOLON
-            formatStringExpr = parsePrimaryExpression(); // 期望是 STR
+        } else {
+            formatStringExpr = parsePrimaryExpression();
             if (!(formatStringExpr instanceof StringLiteralNode)) {
                 throw new RuntimeException("Parser Error: Expected string literal for printf format (simplified mode), but found " + formatStringExpr.getClass().getSimpleName());
             }
@@ -175,6 +236,12 @@ public class RecursiveDescentASTParser {
         return new PrintfNode(formatStringExpr, argument);
     }
 
+    /**
+     * 解析 return 返回语句。
+     * 文法规则 (示例): ReturnStmt -> KW_RETURN Expr SEMICOLON
+     *
+     * @return 构建的 ReturnNode AST 节点。
+     */
     private ReturnNode parseReturnStatement() {
         //文法: ReturnStmt -> KW_RETURN Expr SEMICOLON
         consume("KW_RETURN");
@@ -183,45 +250,72 @@ public class RecursiveDescentASTParser {
         return new ReturnNode(expr);
     }
 
-    // --- 表达式解析 (与上次类似, 采用递归下降处理优先级) ---
-    // Expr -> AdditiveExpr ( (OP_LE | OP_EQ) AdditiveExpr )*
+    /**
+     * 解析表达式 (处理最低优先级的关系运算符，如 <=, ==, >)。
+     * 这是表达式解析的入口点。
+     *
+     * @return 构建的 ExpressionNode AST 节点。
+     */
     private ExpressionNode parseExpression() {
+        // 文法: Expr -> AdditiveExpr ( (OP_LE | OP_EQ | OP_GT) AdditiveExpr )*
         ExpressionNode left = parseAdditiveExpression();
         while (currentToken.type.equals("OP_LE") || currentToken.type.equals("OP_EQ") || currentToken.type.equals("OP_GT")) {
             Token opToken = currentToken;
             consume(opToken.type);
             ExpressionNode right = parseAdditiveExpression();
-            left = new BinaryOpNode(left, opToken.value, right); // opToken.value is "<=" or "=="
+            left = new BinaryOpNode(left, opToken.value, right);
         }
         return left;
     }
 
-    // AdditiveExpr -> MultiplicativeExpr ( OP_ADD MultiplicativeExpr )*
+    /**
+     * 解析加法/乘法类表达式 (处理 +, * 运算符)。
+     * 注意：原代码中此函数名 AdditiveExpression 同时处理了加法和乘法，
+     * 按照标准递归下降，通常会为不同优先级的操作符分层，
+     * 例如 AdditiveExpr -> Term (OP_ADD Term)* 和 Term -> Factor (OP_MUL Factor)*。
+     * 这里简化合并到一层，但仍按顺序检查。
+     *
+     * @return 构建的 ExpressionNode AST 节点。
+     */
     private ExpressionNode parseAdditiveExpression() {
+        //文法: AdditiveExpr -> MultiplicativeExpr ( OP_ADD MultiplicativeExpr )*
         ExpressionNode left = parseMultiplicativeExpression();
         while (currentToken.type.equals("OP_ADD") || currentToken.type.equals("OP_MUL")) {
             Token opToken = currentToken;
             consume(opToken.type);
             ExpressionNode right = parseMultiplicativeExpression();
-            left = new BinaryOpNode(left, opToken.value, right); // opToken.value is "+"
+            left = new BinaryOpNode(left, opToken.value, right);
         }
         return left;
     }
 
-    // MultiplicativeExpr -> PrimaryExpr ( OP_MOD PrimaryExpr )* (仅为 example.txt 处理 OP_MOD)
+    /**
+     * 解析乘法/取模类表达式 (处理 % 运算符)。
+     *
+     * @return 构建的 ExpressionNode AST 节点。
+     */
     private ExpressionNode parseMultiplicativeExpression() {
+        //文法: MultiplicativeExpr -> PrimaryExpr ( OP_MOD PrimaryExpr )*
         ExpressionNode left = parsePrimaryExpression();
         while (currentToken.type.equals("OP_MOD")) {
             Token opToken = currentToken;
             consume(opToken.type);
             ExpressionNode right = parsePrimaryExpression();
-            left = new BinaryOpNode(left, opToken.value, right); // opToken.value is "%"
+            left = new BinaryOpNode(left, opToken.value, right);
         }
         return left;
     }
 
-    // PrimaryExpr -> ID | NUM | STR | LPAREN Expr RPAREN
+    /**
+     * 解析基础表达式 (Primary Expression)。
+     * 包括标识符 (ID), 数字 (NUM), 字符串 (STR), 或括号括起来的表达式。
+     * 这是递归下降解析表达式的原子单位。
+     *
+     * @return 构建的 ExpressionNode AST 节点。
+     * @throws RuntimeException 如果遇到非预期的 Token。
+     */
     private ExpressionNode parsePrimaryExpression() {
+        //文法: PrimaryExpr -> ID | NUM | STR | LPAREN Expr RPAREN
         Token t = currentToken;
         if (t.type.equals("ID")) {
             consume("ID");
@@ -231,7 +325,7 @@ public class RecursiveDescentASTParser {
             return new NumberNode(Integer.parseInt(t.value));
         } else if (t.type.equals("STR")) {
             consume("STR");
-            return new StringLiteralNode(t.value); // t.value 应该包含引号，如 "\"text\""
+            return new StringLiteralNode(t.value);
         } else if (t.type.equals("LPAREN")) {
             consume("LPAREN");
             ExpressionNode expr = parseExpression();

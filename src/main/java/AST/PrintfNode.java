@@ -1,32 +1,52 @@
 package AST;
 
+/**
+ * PrintfNode 代表一个 printf 输出语句节点。
+ * 它通常包含一个格式化字符串和一个可选的参数。
+ * 它继承自 StatementNode。
+ */
 public class PrintfNode extends StatementNode {
     ExpressionNode formatStringExpr;
     ExpressionNode argument;
 
+    /**
+     * PrintfNode 的构造函数。
+     *
+     * @param formatStringExpr 格式化字符串表达式节点。
+     * @param argument         参数表达式节点 (可为 null)。
+     */
     public PrintfNode(ExpressionNode formatStringExpr, ExpressionNode argument) {
         this.formatStringExpr = formatStringExpr;
         this.argument = argument;
     }
 
+    /**
+     * 生成 printf 语句的三地址码。
+     * 这个实现处理几种情况：
+     * 1. printf("%d", variable) -> PRINT variable_place
+     * 2. printf("Some string") -> PRINT_STR "Some string"
+     * 3. printf("String with \\n") -> PRINT_STR "String with " gef PRINT_NEWLINE
+     *
+     * @param context TAC 生成的上下文环境。
+     * @return 对于语句节点，通常返回 null。
+     */
     @Override
     public String generateTAC(TACContext context) {
         String formatStringValue = "";
-        String formatStringActualContent = ""; // 不含引号
+        String formatStringActualContent = "";
 
         if (formatStringExpr instanceof StringLiteralNode) {
-            formatStringValue = ((StringLiteralNode) formatStringExpr).valueWithQuotes; // 例如 "\"%d\\n\""
+            formatStringValue = ((StringLiteralNode) formatStringExpr).valueWithQuotes;
             if (formatStringValue.length() >= 2 && formatStringValue.startsWith("\"") && formatStringValue.endsWith("\"")) {
-                formatStringActualContent = formatStringValue.substring(1, formatStringValue.length() - 1); // 例如 "%d\n"
+                formatStringActualContent = formatStringValue.substring(1, formatStringValue.length() - 1);
             } else {
                 formatStringActualContent = formatStringValue;
             }
         } else {
             System.err.println("警告：Printf 的格式化字符串不是一个直接的字符串字面量 AST 节点。");
-            // 尝试获取其计算值，但这通常不适用于格式字符串
             if (formatStringExpr != null) {
-                formatStringExpr.generateTAC(context); // 如果它是个复杂表达式，先计算
-                formatStringActualContent = formatStringExpr.resultPlace; // 使用其结果作为格式串 (非常规)
+                formatStringExpr.generateTAC(context);
+                formatStringActualContent = formatStringExpr.resultPlace;
             } else {
                 System.err.println("错误：Printf 的 formatStringExpr 为 null。");
                 context.emit("; ERROR_PRINTF_NULL_FORMAT_STRING_EXPR");
@@ -34,14 +54,11 @@ public class PrintfNode extends StatementNode {
             }
         }
 
-        // 根据您最新的 example.txt，printf("%d", i)
         if (formatStringActualContent.equals("%d") && argument != null) {
             String argPlace = argument.generateTAC(context);
             context.emit("PRINT " + argPlace);
         }
-        // printf("Even Number") 或 printf("Odd Number")
         else if (argument == null && !formatStringActualContent.isEmpty()) {
-            // 检查并处理字符串内容中的 \n (如果词法分析器保留了 \n 为 \\n)
             if (formatStringActualContent.contains("\\n")) {
                 String[] parts = formatStringActualContent.split("\\\\n", -1);
                 for (int i = 0; i < parts.length; i++) {
@@ -49,26 +66,31 @@ public class PrintfNode extends StatementNode {
                         context.emit("PRINT_STR \"" + parts[i] + "\"");
                     }
                     if (i < parts.length - 1 || formatStringActualContent.endsWith("\\n")) {
-                        // 如果不是最后一部分，或者原始字符串以\n结尾，则加换行
-                        // (处理 "text\n" 和 "\ntext" 以及 "\n" 本身)
                         if (i < parts.length - 1 || (i == parts.length -1 && formatStringActualContent.endsWith("\\n")))
                             context.emit("PRINT_NEWLINE");
                     }
                 }
-            } else { // 字符串中不包含 \n
+            } else {
                 context.emit("PRINT_STR \"" + formatStringActualContent + "\"");
             }
         } else {
             context.emit("; COMPLEX_PRINTF Format=" + formatStringActualContent + (argument != null ? " Arg=" + (argument.resultPlace != null ? argument.resultPlace : "pending_arg") : ""));
-            if (argument != null) { // 确保参数的TAC也被生成
+            if (argument != null) {
                 argument.generateTAC(context);
             }
         }
         return null;
     }
 
+    /**
+     * 打印 printf 节点的树形结构。
+     *
+     * @param indent 当前节点的缩进字符串。
+     * @param isLast 布尔值，指示当前节点是否为其父节点的最后一个子节点。
+     * @return 表示该节点及其子树的格式化字符串。
+     */
     @Override
-    public String printTree(String indent, boolean isLast) { // 修改返回类型为 String
+    public String printTree(String indent, boolean isLast) {
         StringBuilder sb = new StringBuilder();
         sb.append(indent).append(isLast ? "└── " : "├── ").append("PrintfNode\n");
         String newIndent = indent + (isLast ? "    " : "│   ");

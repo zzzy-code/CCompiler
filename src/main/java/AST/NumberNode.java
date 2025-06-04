@@ -1,26 +1,54 @@
 package AST;
 
+/**
+ * NumberNode 代表源代码中的一个数字字面量。
+ * 它是一种表达式节点。
+ */
 public class NumberNode extends ExpressionNode {
     int value;
 
+    /**
+     * NumberNode 的构造函数。
+     *
+     * @param value 数字的整数值。
+     */
     public NumberNode(int value) {
         this.value = value;
         this.resultPlace = String.valueOf(value);
     }
 
+    /**
+     * 生成数字节点的三地址码。
+     * 数字字面量的值是已知的，直接返回其字符串表示作为 "place"。
+     *
+     * @param context TAC 生成的上下文环境 (此处未使用，但接口要求)。
+     * @return 数字值的字符串表示，即其值的存储位置 (通常直接作为立即数使用)。
+     */
     @Override
     public String generateTAC(TACContext context) {
         return this.resultPlace;
     }
 
+    /**
+     * 覆盖父类的方法，提供特定于数字节点的名称。
+     *
+     * @return 格式为 "Number(值)" 的字符串。
+     */
     @Override
-    protected String NodeName() { // 覆盖父类的方法
+    protected String NodeName() {
         return "Number(" + value + ")";
     }
 
+    /**
+     * 打印数字节点的树形结构。
+     * 此处直接调用父类 (ExpressionNode) 的 printTree 实现。
+     *
+     * @param indent 当前节点的缩进字符串。
+     * @param isLast 布尔值，指示当前节点是否为其父节点的最后一个子节点。
+     * @return 表示该节点的格式化字符串。
+     */
     @Override
-    public String printTree(String indent, boolean isLast) { // 修改返回类型为 String
-        // 使用 ExpressionNode 中的默认 printTree 实现
+    public String printTree(String indent, boolean isLast) {
         return super.printTree(indent, isLast);
     }
 }

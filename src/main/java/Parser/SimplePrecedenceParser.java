@@ -1,45 +1,49 @@
 package Parser;
 
 import Lexer.Token;
-
 import java.util.*;
 
+/**
+ * SimplePrecedenceParser 类实现了一个简单的算符优先分析器。
+ * 该分析器尝试根据定义的语法规则和优先关系表来解析输入的 Token 序列。
+ * 注意：这是一个简化的实现，可能无法处理所有复杂的语法结构或歧义。
+ */
 public class SimplePrecedenceParser {
 
-    // 定义语法规则
+    // 定义语法规则,每条规则由一个 GrammarRule 对象表示，包含左部非终结符和右部符号序列。
     private static final List<GrammarRule> grammarRules = Arrays.asList(
-            // 程序结构
+            // 程序结构 (Program -> int main() Block)
             new GrammarRule("Program", "KW_INT", "KW_MAIN", "LPAREN", "RPAREN", "Block"),
             new GrammarRule("Block", "LBRACE", "StmtList", "RBRACE"),
             new GrammarRule("Block", "LBRACE", "RBRACE"),
 
-            // 语句列表 - 修改为左递归
+            // 语句列表 (StmtList -> StmtList Stmt | Stmt) - 使用左递归定义语句序列
             new GrammarRule("StmtList", "StmtList", "Stmt"),
             new GrammarRule("StmtList", "Stmt"),
 
-            // 语句类型
-            new GrammarRule("Stmt", "DeclStmt"),
-            new GrammarRule("Stmt", "AssignStmt"),
-            new GrammarRule("Stmt", "WhileStmt"),
-            new GrammarRule("Stmt", "IfStmt"),
-            new GrammarRule("Stmt", "ElseIfStmt"),
-            new GrammarRule("Stmt", "PrintStmt"),
-            new GrammarRule("Stmt", "ReturnStmt"),
+            // 语句类型 (Stmt 可以是多种不同类型的语句)
+            new GrammarRule("Stmt", "DeclStmt"),      // 声明语句
+            new GrammarRule("Stmt", "AssignStmt"),    // 赋值语句
+            new GrammarRule("Stmt", "WhileStmt"),     // while 循环语句
+            new GrammarRule("Stmt", "IfStmt"),        // if 条件语句
+            new GrammarRule("Stmt", "ElseIfStmt"),    // else 或 else if (这里简化为 else 块)
+            new GrammarRule("Stmt", "PrintStmt"),     // printf 输出语句
+            new GrammarRule("Stmt", "ReturnStmt"),    // return 返回语句
 
-            // 声明语句
+            // 声明语句 (DeclStmt -> int Expr = Expr; | int Expr;)
             new GrammarRule("DeclStmt", "KW_INT", "Expr", "OP_ASSIGN", "Expr", "SEMICOLON"),
             new GrammarRule("DeclStmt", "KW_INT", "Expr", "SEMICOLON"),
 
-            // 赋值语句
+            // 赋值语句 (AssignStmt -> Expr = Expr;)
             new GrammarRule("AssignStmt", "Expr", "OP_ASSIGN", "Expr", "SEMICOLON"),
 
-            // while语句 - 简化条件表达式
+            // while语句 (WhileStmt -> while Expr Block) - 条件部分简化为单个 Expr
             new GrammarRule("WhileStmt", "KW_WHILE", "Expr", "Block"),
 
-            // if语句
+            // if语句 (IfStmt -> if Expr Block else Block | if Expr Block)
             new GrammarRule("IfStmt", "KW_IF", "Expr", "Block", "KW_ELSE", "Block"),
             new GrammarRule("IfStmt", "KW_IF", "Expr", "Block"),
-            // 新增else语句
+            // else语句 (ElseIfStmt -> else Block)
             new GrammarRule("ElseIfStmt", "KW_ELSE", "Block"),
 
             // printf语句 - 添加更多匹配模式
@@ -47,34 +51,51 @@ public class SimplePrecedenceParser {
             new GrammarRule("PrintStmt", "IO_PRINTF", "LPAREN", "Expr", "COMMA", "Expr", "RPAREN", "SEMICOLON"),
             new GrammarRule("PrintStmt", "IO_PRINTF", "Expr", "SEMICOLON"), // 简化模式
 
-            // return语句
+            // return语句 (ReturnStmt -> return Expr;)
             new GrammarRule("ReturnStmt", "KW_RETURN", "Expr", "SEMICOLON"),
 
-            // 表达式 - 简化处理
-            new GrammarRule("Expr", "Expr", "OP_ADD", "Expr"),
-            new GrammarRule("Expr", "Expr", "OP_LE", "Expr"),
-            new GrammarRule("Expr", "Expr", "OP_EQ", "Expr"),
-            new GrammarRule("Expr", "Expr", "OP_MOD", "Expr"),
-            new GrammarRule("Expr", "Expr", "OP_MUL", "Expr"),
-            new GrammarRule("Expr", "Expr", "OP_GT", "Expr"),
-            new GrammarRule("Expr", "LPAREN", "Expr", "RPAREN"),
-            new GrammarRule("Expr", "ID"),
-            new GrammarRule("Expr", "NUM"),
-            new GrammarRule("Expr", "STR")
+            // 表达式 (Expr) - 定义了各种表达式的构成方式
+            new GrammarRule("Expr", "Expr", "OP_ADD", "Expr"),   // 加法
+            new GrammarRule("Expr", "Expr", "OP_LE", "Expr"),    // 小于等于
+            new GrammarRule("Expr", "Expr", "OP_EQ", "Expr"),    // 等于
+            new GrammarRule("Expr", "Expr", "OP_MOD", "Expr"),   // 取模
+            new GrammarRule("Expr", "Expr", "OP_MUL", "Expr"),   // 乘法
+            new GrammarRule("Expr", "Expr", "OP_SUB", "Expr"),   // 减法
+            new GrammarRule("Expr", "Expr", "OP_DIV", "Expr"),   // 除法
+            new GrammarRule("Expr", "Expr", "OP_GT", "Expr"),    // 大于
+            new GrammarRule("Expr", "LPAREN", "Expr", "RPAREN"), // 括号表达式
+            new GrammarRule("Expr", "ID"),                       // 标识符
+            new GrammarRule("Expr", "NUM"),                      // 数字
+            new GrammarRule("Expr", "STR")                       // 字符串
     );
 
-    // 简单优先关系表
+    /**
+     * 简单优先关系表 (Operator Precedence Table)
+     * 用于存储任意两个终结符之间的优先关系（<, =, >）。
+     * Key: 第一个终结符 (栈顶终结符)
+     * Value: Map<String, String> (Key: 第二个终结符 (当前输入符号), Value: 优先关系)
+     */
     private static final Map<String, Map<String, String>> precedenceTable = new HashMap<>();
 
-    private List<Token> tokens;
-    private int currentIndex;
-    private final Stack<String> parseStack;
-    private final List<String> parseSteps;
+    private List<Token> tokens;             // 输入的 Token 序列
+    private int currentIndex;               // 当前处理到的 Token 索引
+    private final Stack<String> parseStack; // 分析栈，存储终结符和非终结符的名称(类型)
+    private final List<String> parseSteps;  // 记录分析过程中的每一步，用于调试或展示
 
+
+    /**
+     * 获取语法分析的详细步骤。
+     *
+     * @return 分析步骤列表的副本。
+     */
     public List<String> getParseSteps() {
-        return new ArrayList<>(this.parseSteps); // 返回副本以保持封装性
+        return new ArrayList<>(this.parseSteps);
     }
 
+    /**
+     * SimplePrecedenceParser 的构造函数。
+     * 初始化优先关系表、分析栈和分析步骤列表。
+     */
     public SimplePrecedenceParser() {
         initPrecedenceTable();
         parseStack = new Stack<>();
@@ -82,27 +103,31 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 初始化优先关系表
+     * 初始化优先关系表。
+     * 这里定义了一组简化的优先关系，实际的算符优先表会更复杂和完整。
+     * '$' 通常用作输入串的开始/结束标记或栈底标记。
      */
     private void initPrecedenceTable() {
-        // 定义更完整的优先关系
+        // 定义一个基础的优先级映射，数值越大优先级越高（这里用于比较）
         Map<String, Integer> precedence = new HashMap<>();
-        precedence.put("$", 0);
-        precedence.put("KW_RETURN", 1);
-        precedence.put("RBRACE", 2);
-        precedence.put("SEMICOLON", 3);
-        precedence.put("KW_ELSE", 4);
-        precedence.put("RPAREN", 5);
-        precedence.put("OP_EQ", 6);
-        precedence.put("OP_LE", 7);
-        precedence.put("OP_ADD", 8);
-        precedence.put("OP_MOD", 9);
-        precedence.put("LPAREN", 10);
-        precedence.put("ID", 11);
-        precedence.put("NUM", 11);
-        precedence.put("STR", 11);
+        precedence.put("$", 0);         // 栈底/输入结束符
+        precedence.put("KW_RETURN", 1); // return 关键字
+        precedence.put("RBRACE", 2);    // 右花括号 }
+        precedence.put("SEMICOLON", 3); // 分号 ;
+        precedence.put("KW_ELSE", 4);   // else 关键字
+        precedence.put("RPAREN", 5);    // 右圆括号 )
+        precedence.put("OP_EQ", 6);     // 等于 ==
+        precedence.put("OP_LE", 7);     // 小于等于 <=
+        precedence.put("OP_ADD", 8);    // 加法 +
+        precedence.put("OP_SUB", 8);    // 减法 -
+        precedence.put("OP_MUL", 9);    // 乘法 *
+        precedence.put("OP_DIV", 9);    // 除法 /
+        precedence.put("OP_MOD", 9);    // 取模 %
+        precedence.put("LPAREN", 10);   // 左圆括号 (
+        precedence.put("ID", 11);       // 标识符
+        precedence.put("NUM", 11);      // 数字
+        precedence.put("STR", 11);      // 字符串
 
-        // 构建优先关系表
         for (String left : precedence.keySet()) {
             for (String right : precedence.keySet()) {
                 int leftPrec = precedence.get(left);
@@ -110,35 +135,43 @@ public class SimplePrecedenceParser {
 
                 String relation;
                 if (leftPrec < rightPrec) {
-                    relation = "<";
+                    relation = "<";     // 栈顶符号优先级低，移进
                 } else if (leftPrec > rightPrec) {
-                    relation = ">";
+                    relation = ">";     // 栈顶符号优先级高，规约
                 } else {
-                    relation = "=";
+                    relation = "=";     // 优先级相同
                 }
 
                 precedenceTable.computeIfAbsent(left, k -> new HashMap<>()).put(right, relation);
             }
         }
 
-        // 特殊关系
+        // 定义一些特殊关系，这些关系可能不完全遵循上述基于数值的比较逻辑
         precedenceTable.computeIfAbsent("LPAREN", k -> new HashMap<>()).put("RPAREN", "=");
         precedenceTable.computeIfAbsent("LBRACE", k -> new HashMap<>()).put("RBRACE", "=");
         precedenceTable.computeIfAbsent("$", k -> new HashMap<>()).put("$", "=");
     }
 
     /**
-     * 获取优先关系
+     * 获取两个终结符之间的优先关系。
+     *
+     * @param left 栈顶的终结符（或最近的终结符）。
+     * @param right 当前输入符号。
+     * @return 表示优先关系的字符串（"<", "=", ">"）。如果未定义，默认为 "<" (倾向于移进)。
      */
     private String getPrecedence(String left, String right) {
         if (precedenceTable.containsKey(left) && precedenceTable.get(left).containsKey(right)) {
             return precedenceTable.get(left).get(right);
         }
-        return "<"; // 默认左优先级低
+        return "<";
     }
 
     /**
-     * 主要的语法分析函数
+     * 主要的语法分析函数。
+     * 接收一个表示Token序列的字符串，并尝试根据语法规则进行解析。
+     *
+     * @param tokenString 一个由 "(类型, 值) (类型, 值)..." 格式组成的字符串。
+     * @return 如果语法分析成功，则返回 true；否则返回 false。
      */
     public boolean parse(String tokenString) {
         tokens = parseTokenString(tokenString);
@@ -151,33 +184,27 @@ public class SimplePrecedenceParser {
 
         System.out.println("开始语法分析...");
 
-        int maxIterations = tokens.size() * 10; // 防止无限循环
+        int maxIterations = tokens.size() * 10;
         int iterations = 0;
 
         while (currentIndex < tokens.size() && iterations < maxIterations) {
             iterations++;
             Token currentToken = getCurrentToken();
 
-            // 记录规约前的状态
             boolean reduced = false;
-
-            // 持续尝试规约直到无法规约
             int reduceCount = 0;
-            while (tryReduce() && reduceCount < 50) { // 限制规约次数防止无限循环
+            while (tryReduce() && reduceCount < 50) {
                 reduced = true;
                 reduceCount++;
             }
 
-            // 检查是否完成 - 放宽条件
             if ((parseStack.size() == 2 && parseStack.get(1).equals("Program")) ||
                     (parseStack.contains("Program") && currentToken.type.equals("$"))) {
                 System.out.println("语法分析成功完成！");
                 return true;
             }
 
-            // 如果当前token是$且无法继续处理，尝试最后的规约
             if (currentToken.type.equals("$")) {
-                // 尝试将剩余内容规约为程序
                 if (tryFinalReduce()) {
                     System.out.println("通过最终规约完成语法分析！");
                     return true;
@@ -185,8 +212,7 @@ public class SimplePrecedenceParser {
                 break;
             }
 
-            // 移进
-            if (currentIndex < tokens.size() - 1) { // 不移进$符号
+            if (currentIndex < tokens.size() - 1) {
                 shift(currentToken);
                 currentIndex++;
             } else {
@@ -194,13 +220,11 @@ public class SimplePrecedenceParser {
             }
         }
 
-        // 最后的尝试
         int finalReduceCount = 0;
         while (tryReduce() && finalReduceCount < 20) {
             finalReduceCount++;
         }
 
-        // 检查最终状态
         if (parseStack.contains("Program")) {
             System.out.println("语法分析成功完成！");
             return true;
@@ -211,7 +235,11 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 尝试最终规约
+     * 尝试最终规约。 这个方法在原代码中被注释掉了，这里的实现是一个简化版本，
+     * 在主循环结束后，如果标准接受条件未满足，可以尝试进一步规约。
+     * "最终规约"的逻辑可能暗示了对文法或优先表的不足的弥补。
+     *
+     * @return 如果通过某种启发式规则（这里简化为调用tryReduce）使得分析成功，则返回true。
      */
     private boolean tryFinalReduce() {
         // 检查是否可以构成完整程序
@@ -235,7 +263,6 @@ public class SimplePrecedenceParser {
                 }
 
                 if (hasBlock) {
-                    // 强制规约为Program
                     while (parseStack.size() > i + 5) {
                         parseStack.pop();
                     }
@@ -250,7 +277,10 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 移进操作
+     * 执行移进操作 (Shift)。
+     * 将当前输入 Token 的类型压入分析栈。
+     *
+     * @param token 要移进的当前 Token。
      */
     private void shift(Token token) {
         parseStack.push(token.type);
@@ -258,7 +288,11 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 尝试规约
+     * 尝试执行规约操作 (Reduce)。
+     * 遍历语法规则，查找与分析栈顶部内容匹配的规则右部。
+     * 如果找到匹配，则将栈顶的匹配部分弹出，并将规则的左部压入栈。
+     *
+     * @return 如果成功执行了一次规约，则返回 true；否则返回 false。
      */
     private boolean tryReduce() {
         // 特别优先处理printf语句和ElseIfStmt
@@ -269,12 +303,10 @@ public class SimplePrecedenceParser {
             }
         }
 
-        // 优先处理特定的规约顺序
         List<GrammarRule> priorityRules = new ArrayList<>();
         List<GrammarRule> otherRules = new ArrayList<>();
 
         for (GrammarRule rule : grammarRules) {
-            // 优先处理表达式和语句的规约
             if (rule.left.equals("Expr") || rule.left.equals("Stmt") ||
                     rule.left.equals("DeclStmt") || rule.left.equals("AssignStmt") ||
                     rule.left.equals("ReturnStmt") || rule.left.equals("WhileStmt") ||
@@ -285,11 +317,9 @@ public class SimplePrecedenceParser {
             }
         }
 
-        // 按长度排序，长规则优先
         priorityRules.sort((a, b) -> Integer.compare(b.right.length, a.right.length));
         otherRules.sort((a, b) -> Integer.compare(b.right.length, a.right.length));
 
-        // 先尝试优先规则
         for (GrammarRule rule : priorityRules) {
             if (matchRule(rule)) {
                 applyRule(rule);
@@ -297,7 +327,6 @@ public class SimplePrecedenceParser {
             }
         }
 
-        // 再尝试其他规则
         for (GrammarRule rule : otherRules) {
             if (matchRule(rule)) {
                 applyRule(rule);
@@ -309,7 +338,10 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 匹配规则 - 增加调试信息
+     * 检查分析栈的顶部是否匹配给定语法规则的右部。
+     *
+     * @param rule 要检查的语法规则。
+     * @return 如果栈顶内容与规则右部完全匹配，则返回 true；否则返回 false。
      */
     private boolean matchRule(GrammarRule rule) {
         if (parseStack.size() < rule.right.length + 1) { // +1 for $
@@ -323,7 +355,6 @@ public class SimplePrecedenceParser {
             }
         }
 
-        // 调试：打印匹配成功的规则
         if (rule.left.equals("PrintStmt") || rule.left.equals("ElseIfStmt")) {
             System.out.println("调试: 匹配到" + rule.left + "规则: " + rule);
             System.out.println("调试: 栈内容匹配段: " + parseStack.subList(start, parseStack.size()));
@@ -333,20 +364,24 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 应用规则
+     * 应用给定的语法规则进行规约。
+     * 将分析栈顶部匹配规则右部的符号串弹出，然后将规则的左部非终结符压入栈。
+     *
+     * @param rule 要应用的语法规则。
      */
     private void applyRule(GrammarRule rule) {
-        // 弹出右部符号
         for (int i = 0; i < rule.right.length; i++) {
             parseStack.pop();
         }
-        // 压入左部符号
         parseStack.push(rule.left);
         addParseStep("规约: " + rule + " -> 栈: " + getStackSuffix());
     }
 
     /**
-     * 获取栈的后缀用于显示
+     * 获取分析栈的后缀字符串，用于在分析步骤中显示。
+     * 最多显示栈顶的5个元素，如果栈中元素超过5个，则前面用 "..." 表示。
+     *
+     * @return 分析栈后缀的字符串表示。
      */
     private String getStackSuffix() {
         if (parseStack.size() <= 5) {
@@ -360,7 +395,9 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 获取当前token
+     * 获取当前要处理的输入 Token。
+     *
+     * @return 当前的 Token 对象。如果已到达 Token 序列的末尾，则返回一个表示结束符 "$" 的特殊 Token。
      */
     private Token getCurrentToken() {
         if (currentIndex >= tokens.size()) {
@@ -370,7 +407,9 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 添加分析步骤
+     * 向分析步骤列表 (parseSteps) 中添加一条记录，并打印到控制台。
+     *
+     * @param step 要记录的分析步骤描述字符串。
      */
     private void addParseStep(String step) {
         parseSteps.add(step);
@@ -378,7 +417,11 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 解析token字符串
+     * 将输入的 Token 字符串（例如从词法分析器获取的）解析为 Token 对象列表。
+     * 输入字符串的格式假定为 "(类型1, 值1) (类型2, 值2) ..."。
+     *
+     * @param tokenString 包含 Token信息的字符串。
+     * @return 解析生成的 Token 对象列表。
      */
     private List<Token> parseTokenString(String tokenString) {
         List<Token> tokenList = new ArrayList<>();
@@ -396,7 +439,7 @@ public class SimplePrecedenceParser {
     }
 
     /**
-     * 打印分析步骤
+     * 打印记录的全部语法分析步骤。
      */
     public void printParseSteps() {
         System.out.println("\n=== 语法分析详细步骤 ===");

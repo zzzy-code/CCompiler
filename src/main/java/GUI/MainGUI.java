@@ -22,31 +22,43 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * MainGUI 类是编译器的图形用户界面 (GUI) 版本。
+ * 它提供了一个界面来加载或输入源代码，并分阶段执行编译过程，显示中间结果。
+ */
 public class MainGUI extends JFrame {
-    private JTextArea inputArea;
-    private JTextArea outputArea;
-    private JButton lexButton;
-    private JButton simpleParseButton;
-    private JButton astParseButton;
-    private JButton tacButton;
-    private JButton asmButton;
-    private JButton loadFileButton; // 修改变量名
+    private JTextArea inputArea;        // 用于输入或显示源代码的文本区域
+    private JTextArea outputArea;       // 用于显示各种分析和生成结果的文本区域
+    private JButton lexButton;          // 执行词法分析的按钮
+    private JButton simpleParseButton;  // 执行简单优先语法分析的按钮
+    private JButton astParseButton;     // 构建和显示 AST 的按钮
+    private JButton tacButton;          // 生成三地址码的按钮
+    private JButton asmButton;          // 生成汇编代码的按钮
+    private JButton loadFileButton;     // 用于选择和加载源文件的按钮
 
-    private List<Token> currentTokens = null;
-    private ProgramNode currentAstRoot = null;
-    private List<String> currentTac = null;
-    private SimplePrecedenceParser simpleParserInstance;
+    // 用于在编译的各个阶段之间传递数据
+    private List<Token> currentTokens = null;            // 当前的词法单元列表
+    private ProgramNode currentAstRoot = null;           // 当前的 AST 根节点
+    private List<String> currentTac = null;              // 当前生成的三地址码指令列表
+    private SimplePrecedenceParser simpleParserInstance; // 简单优先分析器的实例
 
+
+    /**
+     * MainGUI 的构造函数。
+     * 初始化窗口标题、大小、关闭操作，并设置界面组件。
+     */
     public MainGUI() {
         setTitle("C 编译器 (词法 -> 优先分析 -> AST -> TAC -> ASM)");
         setSize(900, 750);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         initComponents();
-        // loadExampleFile(); // 启动时不再自动加载特定文件
         outputArea.setText("请点击“选择并加载源文件”按钮来加载您的 C 源代码文件，或直接在上方文本框中输入。");
-        resetCompilationState(true); // 启动时启用词法分析按钮
+        resetCompilationState(true);
     }
 
+    /**
+     * 初始化 GUI 组件，包括文本区域、按钮和布局。
+     */
     private void initComponents() {
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -59,8 +71,8 @@ public class MainGUI extends JFrame {
         inputScroll.setPreferredSize(new Dimension(0, 200));
         inputPanel.add(inputScroll, BorderLayout.CENTER);
 
-        loadFileButton = new JButton("选择并加载源文件"); // 修改按钮文本
-        loadFileButton.addActionListener(e -> chooseAndLoadFile()); // 修改调用的方法
+        loadFileButton = new JButton("选择并加载源文件");
+        loadFileButton.addActionListener(e -> chooseAndLoadFile());
         JPanel inputButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         inputButtonPanel.add(loadFileButton);
         inputPanel.add(inputButtonPanel, BorderLayout.SOUTH);
@@ -105,17 +117,25 @@ public class MainGUI extends JFrame {
         add(mainPanel);
     }
 
+    /**
+     * 从指定文件路径读取内容到字符串 (与 Main.java 中的方法类似，但 GUI 中未使用此版本)。
+     * GUI 版本中直接使用 Files.readAllBytes。
+     *
+     * @param filePath 文件路径。
+     * @return 文件内容字符串。
+     * @throws IOException 如果读取文件发生错误。
+     */
     private String readFileToString(String filePath) throws IOException {
         String content = new String(Files.readAllBytes(Paths.get(filePath)));
         return content.replaceAll("\\\\s*", "").trim();
     }
 
-    // 修改 loadExampleFile 为 chooseAndLoadFile
+    /**
+     * 打开文件选择对话框，让用户选择一个源文件，并将其内容加载到输入区域。
+     */
     private void chooseAndLoadFile() {
         JFileChooser fileChooser = new JFileChooser();
-        // 设置默认打开目录为当前项目目录或用户上次打开的目录
-        fileChooser.setCurrentDirectory(new File(".")); // "." 代表当前目录
-        // 设置文件过滤器，例如只显示 .txt 或 .c 文件
+        fileChooser.setCurrentDirectory(new File("."));
         FileNameExtensionFilter filter = new FileNameExtensionFilter(
                 "C Source & Text Files (*.c, *.txt)", "c", "txt");
         fileChooser.setFileFilter(filter);
@@ -128,19 +148,21 @@ public class MainGUI extends JFrame {
                 String sourceCode = readFileToString(selectedFile.getAbsolutePath());
                 inputArea.setText(sourceCode);
                 outputArea.setText("文件已加载: " + selectedFile.getName() + "\n路径: " + selectedFile.getAbsolutePath() + "\n");
-                resetCompilationState(true); // 加载文件后，启用词法分析按钮并重置状态
+                resetCompilationState(true);
             } catch (IOException ex) {
                 outputArea.setText("加载文件 " + selectedFile.getName() + " 失败: " + ex.getMessage());
                 JOptionPane.showMessageDialog(this, "加载文件失败: " + ex.getMessage(),
                         "文件错误", JOptionPane.ERROR_MESSAGE);
-                resetCompilationState(true); // 即使加载失败，也允许用户再次尝试或手动输入
+                resetCompilationState(true);
             }
-        } else {
-            // 用户取消了选择，可以不执行任何操作，或者给个提示
-            // outputArea.append("\n未选择文件。\n");
         }
     }
 
+    /**
+     * 重置编译器的中间状态和按钮的启用状态。
+     *
+     * @param enableLex 如果为 true，则启用词法分析按钮；否则禁用。
+     */
     private void resetCompilationState(boolean enableLex) {
         currentTokens = null;
         currentAstRoot = null;
@@ -154,7 +176,12 @@ public class MainGUI extends JFrame {
         asmButton.setEnabled(false);
     }
 
-
+    /**
+     * 执行词法分析。
+     * 从输入区域获取源代码，调用 Lexer 进行分析，并在输出区域显示结果。
+     *
+     * @param e 按钮点击事件 (未使用)。
+     */
     private void performLexicalAnalysis(ActionEvent e) {
         String source = inputArea.getText();
         if (source.trim().isEmpty()) {
@@ -186,6 +213,12 @@ public class MainGUI extends JFrame {
         }
     }
 
+    /**
+     * 执行简单优先语法分析。
+     * 需要先完成词法分析。将 Token 列表转换为字符串格式，调用 SimplePrecedenceParser。
+     *
+     * @param e 按钮点击事件 (未使用)。
+     */
     private void performSimplePrecedenceParse(ActionEvent e) {
         if (currentTokens == null) {
             JOptionPane.showMessageDialog(this, "请先执行词法分析！", "错误", JOptionPane.ERROR_MESSAGE);
@@ -194,19 +227,15 @@ public class MainGUI extends JFrame {
         try {
             simpleParserInstance = new SimplePrecedenceParser();
             String tokenString = convertTokensToString(currentTokens);
-            // 假设 SimplePrecedenceParser 的 parse 方法内部会打印步骤到控制台
-            // 并且我们通过 getParseSteps 获取步骤来显示在 JTextArea
-            // SimplePrecedenceParser 的构造函数或 parse 方法不应直接修改 GUI
             boolean success = simpleParserInstance.parse(tokenString);
 
             StringBuilder sb = new StringBuilder("=== 简单优先语法分析过程 ===\n");
-            List<String> parseSteps = simpleParserInstance.getParseSteps(); // 需要您在 SimplePrecedenceParser 中实现此方法
+            List<String> parseSteps = simpleParserInstance.getParseSteps();
             if (parseSteps != null && !parseSteps.isEmpty()) {
                 for (String step : parseSteps) {
                     sb.append(step).append("\n");
                 }
             } else {
-                // 如果 parse 方法直接打印到控制台，这里可能没有步骤可获取
                 sb.append("（详细分析步骤请查看控制台，或确保 SimplePrecedenceParser.getParseSteps() 可用且返回了步骤）\n");
             }
             sb.append("\n语法分析最终状态: ").append(success ? "成功" : "失败").append("\n");
@@ -224,6 +253,12 @@ public class MainGUI extends JFrame {
         }
     }
 
+    /**
+     * 执行 AST 构建。
+     * 需要先完成词法分析。使用 RecursiveDescentASTParser 构建 AST。
+     *
+     * @param e 按钮点击事件 (未使用)。
+     */
     private void performASTConstruction(ActionEvent e) {
         if (currentTokens == null) {
             JOptionPane.showMessageDialog(this, "请先执行词法分析！", "错误", JOptionPane.ERROR_MESSAGE);
@@ -246,7 +281,7 @@ public class MainGUI extends JFrame {
             currentAstRoot = astParser.parseProgram();
 
             if (currentAstRoot != null) {
-                String astStringRepresentation = currentAstRoot.printTree("", true); // 假设 printTree 返回 String
+                String astStringRepresentation = currentAstRoot.printTree("", true);
                 outputArea.setText("=== AST 结构展示 ===\n" + astStringRepresentation);
 
                 tacButton.setEnabled(true);
@@ -265,6 +300,12 @@ public class MainGUI extends JFrame {
         }
     }
 
+    /**
+     * 执行三地址码 (TAC) 生成。
+     * 需要先成功构建 AST。
+     *
+     * @param e 按钮点击事件 (未使用)。
+     */
     private void performTACGeneration(ActionEvent e) {
         if (currentAstRoot == null) {
             JOptionPane.showMessageDialog(this, "请先成功构建 AST！", "错误", JOptionPane.ERROR_MESSAGE);
@@ -290,6 +331,13 @@ public class MainGUI extends JFrame {
         }
     }
 
+    /**
+     * 执行汇编代码生成。
+     * 需要先成功生成三地址码。
+     * 生成后，会提示用户保存汇编代码到文件。
+     *
+     * @param e 按钮点击事件 (未使用)。
+     */
     private void performAssemblyGeneration(ActionEvent e) {
         if (currentTac == null || currentTac.isEmpty()) {
             JOptionPane.showMessageDialog(this, "请先成功生成三地址码！", "错误", JOptionPane.ERROR_MESSAGE);
@@ -330,6 +378,13 @@ public class MainGUI extends JFrame {
         }
     }
 
+    /**
+     * 将 Token 列表转换为 SimplePrecedenceParser 期望的特定格式的字符串。
+     * 过滤掉 "EOF" 或 "$" 类型的 Token，因为简单优先分析器通常不直接处理它们。
+     *
+     * @param tokens Token 列表。
+     * @return 格式化后的 Token 字符串。
+     */
     private static String convertTokensToString(List<Token> tokens) {
         StringBuilder sb = new StringBuilder();
         for (Token token : tokens) {
@@ -344,6 +399,12 @@ public class MainGUI extends JFrame {
         return sb.toString();
     }
 
+    /**
+     * 将异常的堆栈跟踪信息转换为字符串，用于在输出区域显示。
+     *
+     * @param ex 发生的异常。
+     * @return 堆栈跟踪的字符串表示。
+     */
     private String getStackTraceString(Exception ex) {
         java.io.StringWriter sw = new java.io.StringWriter();
         java.io.PrintWriter pw = new java.io.PrintWriter(sw);
@@ -351,6 +412,12 @@ public class MainGUI extends JFrame {
         return sw.toString();
     }
 
+    /**
+     * GUI 程序的主入口点。
+     * 设置系统观感 (Look and Feel) 并创建和显示主窗口。
+     *
+     * @param args 命令行参数 (未使用)。
+     */
     public static void main(String[] args) {
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());

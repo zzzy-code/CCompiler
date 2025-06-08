@@ -1,18 +1,43 @@
 package AST;
 
 import Lexer.Token;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 /**
  * RecursiveDescentASTParser 类实现了一个递归下降的语法分析器。
  * 它将词法分析器生成的 Token 列表转换为抽象语法树 (AST)。
- * 该解析器根据特定的文法规则为每种语法结构定义一个解析方法。
+ * 该解析器主要采用递归下降方法来解析语句和程序结构，
+ * 并结合了简单（算符）优先解析 (Operator-Precedence Parsing) 的思想来处理复杂的表达式。
  */
 public class RecursiveDescentASTParser {
     private List<Token> tokens;
     private int currentTokenIndex;
     private Token currentToken;
+
+    // 为算符优先表达式解析器定义一个静态的优先级映射表
+    private static final Map<String, Integer> PRECEDENCE = new HashMap<>();
+    static {
+        // 关系运算符的优先级最低 (0)
+        PRECEDENCE.put("OP_GT", 0);  // 大于
+        PRECEDENCE.put("OP_LE", 0);  // 小于等于
+        PRECEDENCE.put("OP_EQ", 0);  // 等于
+        // 加减法的优先级中等 (1)
+        PRECEDENCE.put("OP_ADD", 1);
+        PRECEDENCE.put("OP_SUB", 1);
+        // 乘、除、取模的优先级最高 (2)
+        PRECEDENCE.put("OP_MUL", 2);
+        PRECEDENCE.put("OP_DIV", 2);
+        PRECEDENCE.put("OP_MOD", 2);
+    }
+
+    /**
+     * 获取给定操作符的优先级。
+     * @param operatorType 操作符的 Token 类型。
+     * @return 返回操作符的优先级数值。如果操作符未定义，返回 -1。
+     */
+    private int getPrecedence(String operatorType) {
+        return PRECEDENCE.getOrDefault(operatorType, -1);
+    }
 
     /**
      * RecursiveDescentASTParser 的构造函数。
@@ -129,14 +154,13 @@ public class RecursiveDescentASTParser {
         consume("KW_INT");
         Token idToken = currentToken;
         consume("ID");
-        IdentifierNode varNameNode = new IdentifierNode(idToken.value);
         ExpressionNode initializer = null;
         if (currentToken.type.equals("OP_ASSIGN")) {
             consume("OP_ASSIGN");
             initializer = parseExpression();
         }
         consume("SEMICOLON");
-        return new DeclarationNode(varNameNode.name, initializer);
+        return new DeclarationNode(idToken.value, initializer);
     }
 
     /**
@@ -226,6 +250,7 @@ public class RecursiveDescentASTParser {
                 argument = parseExpression();
             }
             consume("RPAREN");
+
         } else {
             formatStringExpr = parsePrimaryExpression();
             if (!(formatStringExpr instanceof StringLiteralNode)) {
@@ -251,88 +276,108 @@ public class RecursiveDescentASTParser {
     }
 
     /**
-     * 解析表达式 (处理最低优先级的关系运算符，如 <=, ==, >)。
-     * 这是表达式解析的入口点。
+     * 解析表达式的统一入口。
+     * 这是一个经典的算符优先解析算法的实现 (使用两个栈)。
+     * 它能正确处理操作符的优先级和左结合性。
      *
-     * @return 构建的 ExpressionNode AST 节点。
+     * @return 构建的 ExpressionNode AST 节点，代表整个表达式树的根。
      */
     private ExpressionNode parseExpression() {
-        // 文法: Expr -> AdditiveExpr ( (OP_LE | OP_EQ | OP_GT) AdditiveExpr )*
-        ExpressionNode left = parseAdditiveExpression();
-        while (currentToken.type.equals("OP_LE") || currentToken.type.equals("OP_EQ") || currentToken.type.equals("OP_GT")) {
-            Token opToken = currentToken;
-            consume(opToken.type);
-            ExpressionNode right = parseAdditiveExpression();
-            left = new BinaryOpNode(left, opToken.value, right);
+        Stack<ExpressionNode> operandStack = new Stack<>();
+        Stack<Token> operatorStack = new Stack<>();
+
+        operandStack.push(parsePrimaryExpression());
+
+        while (isBinaryOperator(currentToken)) {
+            Token currentOp = currentToken; // 当前要处理的操作符
+
+            while (!operatorStack.isEmpty() &&
+                    !operatorStack.peek().type.equals("LPAREN") &&
+                    getPrecedence(operatorStack.peek().type) >= getPrecedence(currentOp.type)) {
+                applyOperator(operandStack, operatorStack);
+            }
+
+            operatorStack.push(currentOp);
+            consume(currentOp.type);
+
+            operandStack.push(parsePrimaryExpression());
         }
-        return left;
+
+        while (!operatorStack.isEmpty()) {
+            if (operatorStack.peek().type.equals("LPAREN")) {
+                throw new RuntimeException("Parser Error: Mismatched parentheses, unclosed '('.");
+            }
+            applyOperator(operandStack, operatorStack);
+
+        }
+
+        if (operandStack.size() != 1) {
+            throw new RuntimeException("Parser Error: Invalid expression structure. Operand stack size is " + operandStack.size() + ", expected 1.");
+        }
+        return operandStack.pop(); // 返回表达式树的根节点
     }
 
     /**
-     * 解析加法/乘法类表达式 (处理 +, * 运算符)。
-     * 注意：原代码中此函数名 AdditiveExpression 同时处理了加法和乘法，
-     * 按照标准递归下降，通常会为不同优先级的操作符分层，
-     * 例如 AdditiveExpr -> Term (OP_ADD Term)* 和 Term -> Factor (OP_MUL Factor)*。
-     * 这里简化合并到一层，但仍按顺序检查。
+     * 从操作数栈和操作符栈中弹出元素，构建一个二元操作节点，并将新节点压回操作数栈。
      *
-     * @return 构建的 ExpressionNode AST 节点。
+     * @param operandStack 操作数栈。
+     * @param operatorStack 操作符栈。
      */
-    private ExpressionNode parseAdditiveExpression() {
-        //文法: AdditiveExpr -> MultiplicativeExpr ( OP_ADD MultiplicativeExpr )*
-        ExpressionNode left = parseMultiplicativeExpression();
-        while (currentToken.type.equals("OP_ADD") || currentToken.type.equals("OP_MUL")) {
-            Token opToken = currentToken;
-            consume(opToken.type);
-            ExpressionNode right = parseMultiplicativeExpression();
-            left = new BinaryOpNode(left, opToken.value, right);
+    private void applyOperator(Stack<ExpressionNode> operandStack, Stack<Token> operatorStack) {
+        if (operatorStack.isEmpty()) return;
+        Token opToken = operatorStack.pop();
+        if (operandStack.size() < 2) {
+            throw new RuntimeException("Parser Error: Syntax error, missing operands for operator " + opToken.value);
         }
-        return left;
+
+        ExpressionNode right = operandStack.pop();
+        ExpressionNode left = operandStack.pop();
+        operandStack.push(new BinaryOpNode(left, opToken.value, right));
     }
 
     /**
-     * 解析乘法/取模类表达式 (处理 % 运算符)。
+     * 检查给定的 Token 是否是一个已定义的二元操作符。
      *
-     * @return 构建的 ExpressionNode AST 节点。
+     * @param token 要检查的 Token。
+     * @return 如果是二元操作符则返回 true，否则返回 false。
      */
-    private ExpressionNode parseMultiplicativeExpression() {
-        //文法: MultiplicativeExpr -> PrimaryExpr ( OP_MOD PrimaryExpr )*
-        ExpressionNode left = parsePrimaryExpression();
-        while (currentToken.type.equals("OP_MOD")) {
-            Token opToken = currentToken;
-            consume(opToken.type);
-            ExpressionNode right = parsePrimaryExpression();
-            left = new BinaryOpNode(left, opToken.value, right);
-        }
-        return left;
+    private boolean isBinaryOperator(Token token) {
+        return PRECEDENCE.containsKey(token.type);
+    }
+
+    /**
+     * 检查给定的 Token 是否是一个操作数类型（ID, NUM, STR）。
+     *
+     * @param token 要检查的 Token。
+     * @return 如果是操作数则返回 true，否则返回 false。
+     */
+    private boolean isOperand(Token token) {
+        return token.type.equals("ID") || token.type.equals("NUM") || token.type.equals("STR");
     }
 
     /**
      * 解析基础表达式 (Primary Expression)。
-     * 包括标识符 (ID), 数字 (NUM), 字符串 (STR), 或括号括起来的表达式。
-     * 这是递归下降解析表达式的原子单位。
+     * 这是表达式解析的原子单位，包括标识符、数字、字符串或括号括起来的子表达式。
      *
      * @return 构建的 ExpressionNode AST 节点。
      * @throws RuntimeException 如果遇到非预期的 Token。
      */
     private ExpressionNode parsePrimaryExpression() {
-        //文法: PrimaryExpr -> ID | NUM | STR | LPAREN Expr RPAREN
         Token t = currentToken;
-        if (t.type.equals("ID")) {
-            consume("ID");
-            return new IdentifierNode(t.value);
-        } else if (t.type.equals("NUM")) {
-            consume("NUM");
-            return new NumberNode(Integer.parseInt(t.value));
-        } else if (t.type.equals("STR")) {
-            consume("STR");
-            return new StringLiteralNode(t.value);
-        } else if (t.type.equals("LPAREN")) {
+        if (isOperand(t)) {
+            consume(t.type);
+            if (t.type.equals("ID")) return new IdentifierNode(t.value);
+            if (t.type.equals("NUM")) return new NumberNode(Integer.parseInt(t.value));
+            if (t.type.equals("STR")) return new StringLiteralNode(t.value);
+        }
+        else if (t.type.equals("LPAREN")) {
             consume("LPAREN");
+
             ExpressionNode expr = parseExpression();
             consume("RPAREN");
             return expr;
-        } else {
-            throw new RuntimeException("Parser Error: Unexpected token in primary expression: " + t);
         }
+
+        throw new RuntimeException("Parser Error: Unexpected token for a primary expression: " + t);
     }
 }

@@ -5,9 +5,10 @@ package AST;
  * 它包含左右两个操作数 (表达式) 和一个操作符。
  */
 public class BinaryOpNode extends ExpressionNode {
-    ExpressionNode left;
-    String operatorTokenValue;
-    ExpressionNode right;
+    public ExpressionNode left;
+    public String operatorTokenValue;
+    public ExpressionNode right;
+    private String type; // 用于在分析后存储表达式类型的字段
 
     /**
      * BinaryOpNode 的构造函数。
@@ -20,6 +21,7 @@ public class BinaryOpNode extends ExpressionNode {
         this.left = left;
         this.operatorTokenValue = operatorTokenValue;
         this.right = right;
+        this.type = null; // 初始时未知
     }
 
     /**
@@ -39,6 +41,9 @@ public class BinaryOpNode extends ExpressionNode {
         context.emit(this.resultPlace + " = " + leftPlace + " " + operatorTokenValue + " " + rightPlace);
         return this.resultPlace;
     }
+
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
 
     /**
      * 覆盖父类的方法，提供特定于二元运算节点的名称。
@@ -66,5 +71,19 @@ public class BinaryOpNode extends ExpressionNode {
         sb.append(left.printTree(newIndent, false));
         sb.append(right.printTree(newIndent, true));
         return sb.toString();
+    }
+
+    /**
+     * accept 方法是访问者模式的关键部分，实现了 "双重分派" (Double Dispatch)。
+     * 当外部代码需要用某个访问者来处理一个 AST 节点时，它会调用该节点的 accept 方法，
+     * 并将访问者对象作为参数传入。
+     *
+     * @param visitor 一个实现了 ASTVisitor 接口的访问者对象 (例如 SemanticAnalyzer)。
+     * @param <T>     该方法返回值的类型，与访问者定义的返回类型一致。
+     * @return 访问者处理完该节点后返回的结果。
+     */
+    @Override
+    public <T> T accept(ASTVisitor<T> visitor) {
+        return visitor.visit(this);
     }
 }

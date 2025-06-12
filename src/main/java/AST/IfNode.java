@@ -6,9 +6,9 @@ package AST;
  * 它继承自 StatementNode。
  */
 public class IfNode extends StatementNode {
-    ExpressionNode condition;
-    BlockNode trueBlock;
-    BlockNode falseBlock;
+    public ExpressionNode condition;
+    public BlockNode trueBlock;
+    public BlockNode falseBlock;
 
     /**
      * IfNode 的构造函数。
@@ -82,5 +82,19 @@ public class IfNode extends StatementNode {
             sb.append(falseBlock.printTree(newIndent + " FalseBranch: ", true));
         }
         return sb.toString();
+    }
+
+    /**
+     * accept 方法是访问者模式的关键部分，实现了 "双重分派" (Double Dispatch)。
+     * 当外部代码需要用某个访问者来处理一个 AST 节点时，它会调用该节点的 accept 方法，
+     * 并将访问者对象作为参数传入。
+     *
+     * @param visitor 一个实现了 ASTVisitor 接口的访问者对象 (例如 SemanticAnalyzer)。
+     * @param <T>     该方法返回值的类型，与访问者定义的返回类型一致。
+     * @return 访问者处理完该节点后返回的结果。
+     */
+    @Override
+    public <T> T accept(ASTVisitor<T> visitor) {
+        return visitor.visit(this);
     }
 }

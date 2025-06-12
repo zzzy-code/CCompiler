@@ -5,8 +5,8 @@ package AST;
  * 它包含一个循环条件和一个循环体代码块。
  */
 public class WhileNode extends StatementNode {
-    ExpressionNode condition;
-    BlockNode body;
+    public ExpressionNode condition;
+    public BlockNode body;
 
     /**
      * WhileNode 的构造函数。
@@ -68,5 +68,19 @@ public class WhileNode extends StatementNode {
             sb.append(newIndent).append("└── Body: <empty>\n");
         }
         return sb.toString();
+    }
+
+    /**
+     * accept 方法是访问者模式的关键部分，实现了 "双重分派" (Double Dispatch)。
+     * 当外部代码需要用某个访问者来处理一个 AST 节点时，它会调用该节点的 accept 方法，
+     * 并将访问者对象作为参数传入。
+     *
+     * @param visitor 一个实现了 ASTVisitor 接口的访问者对象 (例如 SemanticAnalyzer)。
+     * @param <T>     该方法返回值的类型，与访问者定义的返回类型一致。
+     * @return 访问者处理完该节点后返回的结果。
+     */
+    @Override
+    public <T> T accept(ASTVisitor<T> visitor) {
+        return visitor.visit(this);
     }
 }

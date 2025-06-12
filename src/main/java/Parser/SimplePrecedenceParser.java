@@ -77,6 +77,16 @@ public class SimplePrecedenceParser {
      */
     private static final Map<String, Map<String, String>> precedenceTable = new HashMap<>();
 
+    // 一个包含所有非终结符的集合，用于快速判断一个符号是否为非终结符。
+    private static final Set<String> nonTerminals = new HashSet<>();
+
+    static {
+        // 静态初始化块，用于填充非终结符集合
+        for (GrammarRule rule : grammarRules) {
+            nonTerminals.add(rule.left);
+        }
+    }
+
     private List<Token> tokens;             // 输入的 Token 序列
     private int currentIndex;               // 当前处理到的 Token 索引
     private final Stack<String> parseStack; // 分析栈，存储终结符和非终结符的名称(类型)
@@ -153,6 +163,23 @@ public class SimplePrecedenceParser {
     }
 
     /**
+     * 从分析栈顶部向下查找最近的终结符。
+     * 在算符优先分析中，优先关系是定义在终结符之间的，非终结符会被忽略。
+     *
+     * @return 栈中最靠近顶部的终结符。如果栈中只有非终结符（和栈底'$'），则返回'$'。
+     */
+    private String findTopmostTerminal() {
+        for (int i = parseStack.size() - 1; i >= 0; i--) {
+            String symbol = parseStack.get(i);
+            if (!nonTerminals.contains(symbol)) {
+                return symbol;
+            }
+        }
+        return "$";
+    }
+
+
+    /**
      * 获取两个终结符之间的优先关系。
      *
      * @param left 栈顶的终结符（或最近的终结符）。
@@ -190,6 +217,19 @@ public class SimplePrecedenceParser {
         while (currentIndex < tokens.size() && iterations < maxIterations) {
             iterations++;
             Token currentToken = getCurrentToken();
+
+            String stackTopTerminal = findTopmostTerminal();
+            String relation = getPrecedence(stackTopTerminal, currentToken.type);
+
+            String decisionLog = String.format("--- 决策点: 栈顶终结符[%s] vs 输入[%s] -> 关系: %s",
+                    stackTopTerminal, currentToken.type, relation);
+            addParseStep(decisionLog);
+
+            if (relation.equals(">")) {
+                addParseStep("INFO: 栈顶符号优先级高，准备尝试规约。");
+            } else {
+                addParseStep("INFO: 输入符号优先级不低于栈顶符号，准备移进。");
+            }
 
             boolean reduced = false;
             int reduceCount = 0;

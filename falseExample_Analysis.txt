@@ -1,0 +1,6 @@
+int main() {
+    int i = 0;
+    s = 50;
+    printf("%d", s);
+    return 0;
+}

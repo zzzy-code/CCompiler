@@ -3,6 +3,7 @@ package GUI;
 import AST.ProgramNode;
 import AST.RecursiveDescentASTParser;
 import AST.TACContext;
+import Analysis.*;
 import AssemblyGenerator.AssemblyGenerator;
 import Lexer.Lexer;
 import Lexer.Token;
@@ -48,7 +49,7 @@ public class MainGUI extends JFrame {
      * 初始化窗口标题、大小、关闭操作，并设置界面组件。
      */
     public MainGUI() {
-        setTitle("C 编译器 (词法 -> 优先分析 -> AST -> TAC -> ASM)");
+        setTitle("C 编译器 (词法 -> 优先分析 -> AST/语义 -> TAC -> ASM)");
         setSize(900, 750);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         initComponents();
@@ -88,7 +89,7 @@ public class MainGUI extends JFrame {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 10));
         lexButton = new JButton("1. 词法分析");
         simpleParseButton = new JButton("2. 简单优先分析过程");
-        astParseButton = new JButton("3. 构建并显示 AST");
+        astParseButton = new JButton("3. AST构建与语义分析");
         tacButton = new JButton("4. 生成三地址码");
         asmButton = new JButton("5. 生成汇编代码");
 
@@ -254,8 +255,11 @@ public class MainGUI extends JFrame {
     }
 
     /**
-     * 执行 AST 构建。
-     * 需要先完成词法分析。使用 RecursiveDescentASTParser 构建 AST。
+     * 执行 AST 构建和语义分析。
+     * 需要先完成词法分析。
+     * 1. 使用 RecursiveDescentASTParser 构建 AST。
+     * 2. 如果 AST 构建成功，则立即进行语义分析。
+     * 3. 只有两者都成功，才启用下一步。
      *
      * @param e 按钮点击事件 (未使用)。
      */
@@ -264,6 +268,9 @@ public class MainGUI extends JFrame {
             JOptionPane.showMessageDialog(this, "请先执行词法分析！", "错误", JOptionPane.ERROR_MESSAGE);
             return;
         }
+
+        tacButton.setEnabled(false);
+        asmButton.setEnabled(false);
         try {
             List<Token> tokensForAstParser = new ArrayList<>(currentTokens);
             boolean hasEOF = false;
@@ -280,35 +287,43 @@ public class MainGUI extends JFrame {
             RecursiveDescentASTParser astParser = new RecursiveDescentASTParser(tokensForAstParser);
             currentAstRoot = astParser.parseProgram();
 
-            if (currentAstRoot != null) {
-                String astStringRepresentation = currentAstRoot.printTree("", true);
-                outputArea.setText("=== AST 结构展示 ===\n" + astStringRepresentation);
-
-                tacButton.setEnabled(true);
-                asmButton.setEnabled(false);
-                currentTac = null;
-                JOptionPane.showMessageDialog(this, "AST 构建完成！", "成功", JOptionPane.INFORMATION_MESSAGE);
-            } else {
-                outputArea.setText("AST 构建失败。解析器返回了 null。");
-                tacButton.setEnabled(false);
-                JOptionPane.showMessageDialog(this, "AST 构建失败。", "错误", JOptionPane.ERROR_MESSAGE);
+            if (currentAstRoot == null) {
+                throw new RuntimeException("AST 构建失败，解析器返回了 null。");
             }
+            outputArea.setText("AST 构建成功。\n\n正在进行语义分析...");
+
+            SemanticAnalyzer semanticAnalyzer = new SemanticAnalyzer();
+            currentAstRoot.accept(semanticAnalyzer);
+
+            outputArea.setText("语义分析通过！\n\n=== AST 结构展示 ===\n" + currentAstRoot.printTree("", true));
+            JOptionPane.showMessageDialog(this, "AST 构建与语义分析均已完成！", "成功", JOptionPane.INFORMATION_MESSAGE);
+
+            tacButton.setEnabled(true);
+            currentTac = null;
+
         } catch (Exception ex) {
-            outputArea.setText("AST 构建错误: " + ex.getMessage() + "\n" + getStackTraceString(ex));
-            JOptionPane.showMessageDialog(this, "AST 构建错误: " + ex.getMessage(), "AST错误", JOptionPane.ERROR_MESSAGE);
+            String errorType = "AST 构建错误";
+            if (ex instanceof SemanticException) {
+                errorType = "语义错误";
+            }
+
+            outputArea.setText(errorType + ":\n" + ex.getMessage() + "\n\n" + getStackTraceString(ex));
+            JOptionPane.showMessageDialog(this, errorType + ": " + ex.getMessage(), errorType, JOptionPane.ERROR_MESSAGE);
+
+            currentAstRoot = null;
             tacButton.setEnabled(false);
         }
     }
 
     /**
      * 执行三地址码 (TAC) 生成。
-     * 需要先成功构建 AST。
+     * 需要先成功构建 AST 和通过语义分析。
      *
      * @param e 按钮点击事件 (未使用)。
      */
     private void performTACGeneration(ActionEvent e) {
         if (currentAstRoot == null) {
-            JOptionPane.showMessageDialog(this, "请先成功构建 AST！", "错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "请先成功完成 AST 构建和语义分析！", "错误", JOptionPane.ERROR_MESSAGE);
             return;
         }
         try {

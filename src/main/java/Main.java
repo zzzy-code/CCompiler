@@ -1,6 +1,7 @@
 import AST.ProgramNode;
 import AST.RecursiveDescentASTParser;
 import AST.TACContext;
+import Analysis.SemanticAnalyzer;
 import AssemblyGenerator.AssemblyGenerator;
 import Lexer.Lexer;
 import Lexer.Token;
@@ -39,7 +40,7 @@ public class Main {
      * @param args 命令行参数 (未使用)。
      */
     public static void main(String[] args) {
-        String filePath = "D:\\computerPracticalTraining\\CCompiler\\src\\main\\java\\example.txt";
+        String filePath = "D:\\computerPracticalTraining\\CCompiler\\trueExample_checkNumber.txt";
 
         try {
             String sourceCode = readFileToString(filePath);
@@ -83,6 +84,12 @@ public class Main {
                 System.out.println("\n--- AST 结构展示 ---");
                 astRoot.printTree("", true);
                 System.out.println("----------------------\n");
+
+                // 3. 语义分析
+                System.out.println("正在进行语义分析...");
+                SemanticAnalyzer semanticAnalyzer = new SemanticAnalyzer();
+                astRoot.accept(semanticAnalyzer);
+                System.out.println("语义分析通过。");
 
                 // 4. 从 AST 生成三地址码
                 TACContext tacContext = new TACContext();
